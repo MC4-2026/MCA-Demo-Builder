@@ -355,14 +355,32 @@ def analyze_tone(soup):
 
 def generate_identity(name, soup, tone):
     meta = soup.find('meta', attrs={'name': 'description'})
-    meta_desc = meta['content'] if meta and meta.get('content') else ''
-    h1 = soup.find('h1')
-    h1_text = h1.get_text(strip=True) if h1 else ''
-    tagline = h1_text or meta_desc
+    meta_desc = (meta['content'].strip() if meta and meta.get('content') else '')
+
+    # Look for a real tagline/slogan in hero sections
+    tagline_text = ''
+    for cls in ['tagline', 'slogan', 'hero-text', 'hero-title', 'banner-title']:
+        el = soup.find(class_=re.compile(cls, re.I))
+        if el:
+            t = el.get_text(strip=True)
+            if len(t) > 10 and len(t) < 200:
+                tagline_text = t
+                break
+
+    # Prefer meta description (usually a real brand statement),
+    # then tagline element, then skip — never use <h1> as it's often
+    # just the page title (e.g. "Chase home page")
+    tagline = meta_desc or tagline_text
+
+    # Filter out generic page titles that aren't real taglines
+    generic_patterns = ['home page', 'homepage', 'welcome to', 'official site',
+                        'official website', 'log in', 'sign in', 'page not found']
+    if tagline and any(p in tagline.lower() for p in generic_patterns):
+        tagline = ''
 
     identity = f"{name} is a brand that {tone['description'].lower().rstrip('.')}."
     if tagline:
-        identity += f' Their core message: "{tagline[:150]}."'
+        identity += f' Their core message: "{tagline[:200]}."'
     identity += ' They value consistency, clarity, and connecting with their audience through every touchpoint.'
     return identity
 
@@ -627,6 +645,82 @@ def job_status(job_id):
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     return jsonify(job)
+
+
+@app.route('/api/more-images', methods=['POST'])
+def scan_more_images():
+    """Crawl additional sub-pages for more images."""
+    data = request.json or {}
+    source_url = data.get('sourceUrl', '').strip()
+    existing_urls = set(data.get('existingImageUrls', []))
+    max_pages = min(int(data.get('maxPages', 5)), 10)
+
+    if not source_url:
+        return jsonify({'error': 'sourceUrl is required'}), 400
+
+    try:
+        html, final_url = fetch_page(source_url)
+        soup = BeautifulSoup(html, 'html.parser')
+        sub_pages = find_sub_pages(soup, final_url, max_pages=max_pages + 3)
+
+        # Skip pages already crawled in initial analysis (first 2)
+        new_images = []
+        pages_scanned = 0
+        for sub_url in sub_pages[2:]:
+            try:
+                sub_html, sub_final = fetch_page(sub_url, timeout=5)
+                sub_soup = BeautifulSoup(sub_html, 'html.parser')
+                page_images = extract_images(sub_soup, sub_final)
+                pages_scanned += 1
+                for img in page_images:
+                    if img['url'] not in existing_urls and len(new_images) < 20:
+                        img['alt'] = img.get('alt', 'Image') + ' (additional)'
+                        new_images.append(img)
+                        existing_urls.add(img['url'])
+            except:
+                pages_scanned += 1
+
+        return jsonify({
+            'images': new_images,
+            'pagesScanned': pages_scanned,
+            'totalFound': len(new_images)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/scan-page', methods=['POST'])
+def scan_specific_page():
+    """Scan a specific URL for images."""
+    data = request.json or {}
+    page_url = data.get('pageUrl', '').strip()
+    existing_urls = set(data.get('existingImageUrls', []))
+
+    if not page_url:
+        return jsonify({'error': 'pageUrl is required'}), 400
+
+    if not page_url.startswith('http'):
+        page_url = 'https://' + page_url
+
+    try:
+        html, final_url = fetch_page(page_url, timeout=10)
+        soup = BeautifulSoup(html, 'html.parser')
+        page_images = extract_images(soup, final_url)
+
+        new_images = []
+        for img in page_images:
+            if img['url'] not in existing_urls:
+                img['alt'] = img.get('alt', 'Image') + ' (scanned)'
+                new_images.append(img)
+                existing_urls.add(img['url'])
+
+        return jsonify({
+            'images': new_images,
+            'totalFound': len(new_images),
+            'pageTitle': (soup.find('title').get_text(strip=True) if soup.find('title') else page_url)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
 
 
 @app.route('/')
@@ -924,9 +1018,60 @@ def oauth_callback():
 </body></html>"""
 
 
+def check_brand_support(workspace_id, token, instance):
+    """Test if a workspace supports sfdc_cms__brand by sending a minimal create request.
+    Returns True if the workspace supports brand content type (even if required fields are missing)."""
+    try:
+        resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+            'contentSpaceOrFolderId': workspace_id,
+            'contentType': 'sfdc_cms__brand',
+            'title': '__brand_support_check__',
+            'contentBody': {}
+        })
+        if not resp.ok:
+            err = resp.text
+            if 'not supported by this space' in err:
+                return False
+            return True
+        return True
+    except:
+        return False
+
+
+def find_marketing_workspace(token, instance):
+    """Find the 'Content Workspace for Marketing Cloud' or any marketing-type workspace."""
+    resp = sf_api('GET',
+        '/services/data/v62.0/query?q=' + quote("SELECT Id, Name FROM ManagedContentSpace ORDER BY Name"),
+        token, instance)
+    if not resp.ok:
+        return None, []
+
+    records = resp.json().get('records', [])
+    all_workspaces = [{'id': r['Id'], 'name': r['Name']} for r in records]
+
+    # Check each workspace's spaceType via the Connect API
+    for r in records:
+        try:
+            space_resp = sf_api('GET', f'/services/data/v62.0/connect/cms/spaces/{r["Id"]}', token, instance)
+            if space_resp.ok:
+                space_data = space_resp.json()
+                space_type = space_data.get('spaceType', {}).get('apiName', '')
+                if space_type == 'marketing':
+                    return {'id': r['Id'], 'name': r['Name']}, all_workspaces
+        except:
+            pass
+
+    # Fallback: find any workspace that supports brand content
+    for r in records:
+        if check_brand_support(r['Id'], token, instance):
+            return {'id': r['Id'], 'name': r['Name']}, all_workspaces
+
+    return None, all_workspaces
+
+
 @app.route('/api/sf/workspaces')
 def get_workspaces():
-    """List CMS workspaces in the connected Salesforce org."""
+    """Find the marketing workspace for brand deployment."""
     token = session.get('sf_access_token')
     instance = session.get('sf_instance_url')
     if not token or not instance:
@@ -942,7 +1087,35 @@ def get_workspaces():
         return jsonify({'error': 'Failed to fetch workspaces'}), 500
 
     records = resp.json().get('records', [])
-    return jsonify({'workspaces': [{'id': r['Id'], 'name': r['Name']} for r in records]})
+    all_workspaces = [{'id': r['Id'], 'name': r['Name']} for r in records]
+
+    # Try to auto-detect the marketing workspace
+    marketing_ws = None
+    for r in records:
+        try:
+            space_resp = sf_api('GET', f'/services/data/v62.0/connect/cms/spaces/{r["Id"]}', token, instance)
+            if space_resp.ok:
+                space_data = space_resp.json()
+                space_type = space_data.get('spaceType', {}).get('apiName', '')
+                if space_type == 'marketing':
+                    marketing_ws = {'id': r['Id'], 'name': r['Name']}
+                    break
+        except:
+            pass
+
+    # If no marketing workspace found, check for any brand-compatible workspace
+    brand_compatible = []
+    if not marketing_ws:
+        for r in records:
+            if check_brand_support(r['Id'], token, instance):
+                brand_compatible.append({'id': r['Id'], 'name': r['Name']})
+
+    return jsonify({
+        'marketingWorkspace': marketing_ws,
+        'brandCompatible': brand_compatible,
+        'allWorkspaces': all_workspaces,
+        'totalSpaces': len(records)
+    })
 
 
 @app.route('/api/sf/workspaces', methods=['POST'])
@@ -972,12 +1145,19 @@ def create_workspace():
         return jsonify({'error': f'Failed to create workspace: {err_detail}'}), 500
 
     result = resp.json()
+    ws_id = result.get('id', '')
+
+    # Check if the new workspace supports brand content type
+    supports_brand = check_brand_support(ws_id, token, instance) if ws_id else False
+
     return jsonify({
         'success': True,
         'workspace': {
-            'id': result.get('id', ''),
+            'id': ws_id,
             'name': result.get('name', api_name)
-        }
+        },
+        'supportsBrand': supports_brand,
+        'warning': '' if supports_brand else 'This workspace was created but may not support Brand content. You may need to enable the Brand content type in Salesforce Setup > Digital Experiences > CMS.'
     })
 
 
