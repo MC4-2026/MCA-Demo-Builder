@@ -200,9 +200,10 @@
 
     <!-- Action -->
     <div class="flex items-center gap-4 pt-2">
-      <button id="btnCreateBrand" onclick="confirmBrand()"
-        class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg">
-        Create Brand in CMS
+      <button id="btnDeployBrand" onclick="startDeploy()"
+        class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        Deploy to Salesforce
       </button>
       <button onclick="exportJSON()" class="px-6 py-3 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
         Export Config as JSON
@@ -210,30 +211,188 @@
     </div>
   </section>
 
-  <!-- ========== STEP 4: Confirmation ========== -->
+  <!-- ========== STEP 4: Deploy Flow ========== -->
+  <section id="step-deploy" class="hidden fade-in space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-2xl font-bold text-secondary">Deploy to Salesforce</h2>
+        <p class="text-muted mt-0.5">Connect to your Salesforce org and deploy the brand directly to CMS.</p>
+      </div>
+      <button onclick="showStep('step-preview')" class="text-sm text-primary hover:underline cursor-pointer">&larr; Back to Preview</button>
+    </div>
+
+    <!-- Sub-step A: Connect to Salesforce -->
+    <div id="deploy-connect" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div id="connectIcon" class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">1</div>
+        <h3 class="text-lg font-semibold text-secondary">Connect to Salesforce</h3>
+        <span id="connectBadge" class="hidden ml-auto px-3 py-0.5 rounded-full text-xs font-semibold bg-success/10 text-success">Connected</span>
+      </div>
+      <div id="connectForm">
+        <p class="text-muted text-sm mb-4">Choose your Salesforce environment and log in. A popup will open for you to authorize.</p>
+        <div class="flex items-center gap-4 flex-wrap">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="sfEnv" value="production" checked class="accent-primary" />
+            <span class="text-sm font-medium text-secondary">Production</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="sfEnv" value="sandbox" class="accent-primary" />
+            <span class="text-sm font-medium text-secondary">Sandbox</span>
+          </label>
+          <button id="btnConnect" onclick="connectToSalesforce()"
+            class="ml-4 px-5 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Connect
+          </button>
+        </div>
+        <div id="connectError" class="hidden mt-3 text-error text-sm font-medium"></div>
+      </div>
+      <div id="connectedInfo" class="hidden">
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <span class="text-sm text-secondary">Connected to <strong id="connectedOrg"></strong></span>
+          <button onclick="disconnectSalesforce()" class="text-xs text-muted hover:text-error transition cursor-pointer">Disconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-step B: Select Workspace -->
+    <div id="deploy-workspace" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-50 pointer-events-none">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">2</div>
+        <h3 class="text-lg font-semibold text-secondary">Select CMS Workspace</h3>
+      </div>
+      <p class="text-muted text-sm mb-4">Choose an existing workspace or create a new one using the company name.</p>
+      <div class="flex items-center gap-4 flex-wrap">
+        <select id="workspaceSelect"
+          class="w-full md:w-auto md:min-w-[280px] px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition">
+          <option value="">Loading workspaces...</option>
+        </select>
+        <span class="text-muted text-sm">or</span>
+        <button id="btnCreateWorkspace" onclick="showCreateWorkspace()"
+          class="px-4 py-2 border border-primary text-primary font-medium rounded-lg hover:bg-primary/5 transition cursor-pointer text-sm flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Create New Workspace
+        </button>
+      </div>
+      <!-- Create workspace inline form -->
+      <div id="createWorkspaceForm" class="hidden mt-4 p-4 bg-surface rounded-lg border border-gray-200">
+        <div class="flex items-end gap-3">
+          <div class="flex-1">
+            <label class="block text-sm font-medium text-secondary mb-1">Workspace Name</label>
+            <input id="newWorkspaceName" type="text" placeholder="e.g. Acme Corp"
+              class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition" />
+          </div>
+          <button id="btnConfirmCreate" onclick="createNewWorkspace()"
+            class="px-5 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer flex items-center gap-1.5">
+            Create
+          </button>
+          <button onclick="hideCreateWorkspace()" class="px-3 py-2 text-muted hover:text-secondary transition cursor-pointer text-sm">
+            Cancel
+          </button>
+        </div>
+        <div id="createWorkspaceError" class="hidden mt-2 text-error text-sm font-medium"></div>
+        <div id="createWorkspaceSuccess" class="hidden mt-2 text-success text-sm font-medium"></div>
+      </div>
+      <div id="workspaceError" class="hidden mt-3 text-error text-sm font-medium"></div>
+    </div>
+
+    <!-- Sub-step C: Deploy -->
+    <div id="deploy-action" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-50 pointer-events-none">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">3</div>
+        <h3 class="text-lg font-semibold text-secondary">Deploy Brand</h3>
+      </div>
+
+      <!-- Pre-deploy summary -->
+      <div id="deploySummary" class="mb-4">
+        <p class="text-muted text-sm mb-3">Ready to deploy the following to your Salesforce CMS:</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+          <div class="bg-surface rounded-lg p-3">
+            <div class="text-xl font-bold text-secondary">1</div>
+            <div class="text-xs text-muted">Brand</div>
+          </div>
+          <div class="bg-surface rounded-lg p-3">
+            <div id="deployImageCount" class="text-xl font-bold text-secondary">0</div>
+            <div class="text-xs text-muted">Images</div>
+          </div>
+          <div class="bg-surface rounded-lg p-3">
+            <div id="deployColorCount" class="text-xl font-bold text-secondary">0</div>
+            <div class="text-xs text-muted">Colors</div>
+          </div>
+          <div class="bg-surface rounded-lg p-3">
+            <div id="deployFontCount" class="text-xl font-bold text-secondary">2</div>
+            <div class="text-xs text-muted">Fonts</div>
+          </div>
+        </div>
+      </div>
+
+      <button id="btnDeploy" onclick="executeDeploy()"
+        class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Deploy Brand Now
+      </button>
+
+      <!-- Deploy progress -->
+      <div id="deployProgress" class="hidden mt-4">
+        <div class="flex items-center gap-3 mb-2">
+          <svg class="w-5 h-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <span id="deployStatusText" class="text-sm text-secondary font-medium">Deploying...</span>
+        </div>
+        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div id="deployProgressBar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Deploy error -->
+      <div id="deployError" class="hidden mt-4 p-3 bg-error/5 border border-error/20 rounded-lg text-error text-sm"></div>
+    </div>
+  </section>
+
+  <!-- ========== STEP 5: Success ========== -->
   <section id="step-confirm" class="hidden fade-in">
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
       <div class="flex items-center gap-3 mb-6">
-        <div class="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center">
-          <svg class="w-6 h-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        <div class="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
+          <svg class="w-7 h-7 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         </div>
-        <h2 class="text-2xl font-bold text-secondary">Ready to Create</h2>
+        <div>
+          <h2 class="text-2xl font-bold text-secondary">Brand Deployed!</h2>
+          <p class="text-muted text-sm">Your brand has been created and published in Salesforce CMS.</p>
+        </div>
       </div>
 
-      <p class="text-muted mb-6">The following brand configuration will be created in your Marketing Cloud Advanced CMS. Copy the JSON below, then have MeshMesh create the brand and upload images to your org.</p>
-
-      <div class="bg-gray-50 rounded-lg p-4 mb-6 overflow-x-auto">
-        <pre id="confirmJSON" class="text-sm text-secondary font-mono whitespace-pre-wrap"></pre>
+      <div class="bg-surface rounded-lg p-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <div>
+            <span class="text-muted block">Brand Name</span>
+            <strong id="successBrandName" class="text-secondary"></strong>
+          </div>
+          <div>
+            <span class="text-muted block">Workspace</span>
+            <strong id="successWorkspace" class="text-secondary"></strong>
+          </div>
+          <div>
+            <span class="text-muted block">Items Created</span>
+            <strong id="successItemCount" class="text-secondary"></strong>
+          </div>
+        </div>
       </div>
+
+      <div id="successWarnings" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm"></div>
 
       <div class="flex items-center gap-4">
-        <button onclick="copyJSON()" class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer">
-          Copy JSON
+        <a id="successCmsLink" href="#" target="_blank"
+          class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer inline-flex items-center gap-2 no-underline">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          Open in Salesforce CMS
+        </a>
+        <button onclick="goBack()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
+          Analyze Another Website
         </button>
-        <button onclick="showStep('step-preview')" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
-          Back to Preview
-        </button>
-        <span id="copyMsg" class="hidden text-success text-sm font-medium">Copied!</span>
       </div>
     </div>
   </section>
@@ -265,8 +424,9 @@ const API_BASE = window.location.origin;
 // NAVIGATION
 // ============================================================
 function showStep(id) {
-  ['step-input','step-loading','step-preview','step-confirm'].forEach(s => {
-    document.getElementById(s).classList.toggle('hidden', s !== id);
+  ['step-input','step-loading','step-preview','step-confirm','step-deploy'].forEach(s => {
+    const el = document.getElementById(s);
+    if (el) el.classList.toggle('hidden', s !== id);
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -541,12 +701,6 @@ function gatherFinalConfig() {
   };
 }
 
-function confirmBrand() {
-  const config = gatherFinalConfig();
-  document.getElementById('confirmJSON').textContent = JSON.stringify(config, null, 2);
-  showStep('step-confirm');
-}
-
 function exportJSON() {
   const config = gatherFinalConfig();
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -556,13 +710,380 @@ function exportJSON() {
   a.click();
 }
 
-function copyJSON() {
-  const text = document.getElementById('confirmJSON').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const msg = document.getElementById('copyMsg');
-    msg.classList.remove('hidden');
-    setTimeout(() => msg.classList.add('hidden'), 2000);
-  });
+// ============================================================
+// DEPLOY FLOW
+// ============================================================
+let sfConnected = false;
+let oauthPopup = null;
+
+function startDeploy() {
+  // Store brand config in localStorage to survive OAuth redirect
+  const config = gatherFinalConfig();
+  localStorage.setItem('brandConfig', JSON.stringify(config));
+
+  // Update deploy summary counts
+  document.getElementById('deployImageCount').textContent = config.images.length;
+  document.getElementById('deployColorCount').textContent = config.colors.length;
+
+  showStep('step-deploy');
+
+  // Check if already connected
+  checkSfStatus();
+}
+
+async function checkSfStatus() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/status`);
+    const data = await resp.json();
+    if (data.connected) {
+      onConnected(data.instanceUrl);
+    }
+  } catch (e) {
+    // Not connected, that's fine
+  }
+}
+
+function connectToSalesforce() {
+  const env = document.querySelector('input[name="sfEnv"]:checked').value;
+  const errEl = document.getElementById('connectError');
+  errEl.classList.add('hidden');
+
+  // Open OAuth popup
+  const w = 600, h = 700;
+  const left = (screen.width - w) / 2;
+  const top = (screen.height - h) / 2;
+  oauthPopup = window.open(
+    `${API_BASE}/oauth/login?env=${env}`,
+    'sfOAuth',
+    `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`
+  );
+
+  // Update button state
+  const btn = document.getElementById('btnConnect');
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Waiting for login...`;
+  btn.classList.add('opacity-60');
+
+  // Poll for popup close in case message doesn't fire
+  const popupPoll = setInterval(() => {
+    if (oauthPopup && oauthPopup.closed) {
+      clearInterval(popupPoll);
+      // Check if connection succeeded
+      setTimeout(() => checkSfStatus(), 500);
+      resetConnectButton();
+    }
+  }, 500);
+}
+
+function resetConnectButton() {
+  const btn = document.getElementById('btnConnect');
+  btn.disabled = false;
+  btn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Connect`;
+  btn.classList.remove('opacity-60');
+}
+
+// Listen for OAuth messages from popup
+window.addEventListener('message', function(event) {
+  if (event.data && event.data.type === 'oauth_success') {
+    resetConnectButton();
+    checkSfStatus();
+  } else if (event.data && event.data.type === 'oauth_error') {
+    resetConnectButton();
+    const errEl = document.getElementById('connectError');
+    errEl.textContent = 'Connection failed: ' + (event.data.error || 'Unknown error');
+    errEl.classList.remove('hidden');
+  }
+});
+
+async function onConnected(instanceUrl) {
+  sfConnected = true;
+
+  // Update connect section UI
+  document.getElementById('connectForm').classList.add('hidden');
+  document.getElementById('connectedInfo').classList.remove('hidden');
+  document.getElementById('connectBadge').classList.remove('hidden');
+  document.getElementById('connectIcon').innerHTML = `<svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
+  document.getElementById('connectIcon').classList.remove('bg-primary/10', 'text-primary');
+  document.getElementById('connectIcon').classList.add('bg-success/10', 'text-success');
+
+  // Show org URL nicely
+  try {
+    const url = new URL(instanceUrl);
+    document.getElementById('connectedOrg').textContent = url.hostname;
+  } catch {
+    document.getElementById('connectedOrg').textContent = instanceUrl;
+  }
+
+  // Enable workspace section
+  const wsSection = document.getElementById('deploy-workspace');
+  wsSection.classList.remove('opacity-50', 'pointer-events-none');
+
+  // Load workspaces
+  await loadWorkspaces();
+}
+
+async function disconnectSalesforce() {
+  try {
+    await fetch(`${API_BASE}/oauth/logout`);
+  } catch (e) {}
+
+  sfConnected = false;
+
+  // Reset connect section
+  document.getElementById('connectForm').classList.remove('hidden');
+  document.getElementById('connectedInfo').classList.add('hidden');
+  document.getElementById('connectBadge').classList.add('hidden');
+  document.getElementById('connectIcon').innerHTML = '1';
+  document.getElementById('connectIcon').classList.add('bg-primary/10', 'text-primary');
+  document.getElementById('connectIcon').classList.remove('bg-success/10', 'text-success');
+
+  // Disable workspace and deploy sections
+  document.getElementById('deploy-workspace').classList.add('opacity-50', 'pointer-events-none');
+  document.getElementById('deploy-action').classList.add('opacity-50', 'pointer-events-none');
+}
+
+async function loadWorkspaces() {
+  const select = document.getElementById('workspaceSelect');
+  const errEl = document.getElementById('workspaceError');
+  errEl.classList.add('hidden');
+  select.innerHTML = '<option value="">Loading workspaces...</option>';
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/workspaces`);
+    if (resp.status === 401) {
+      errEl.textContent = 'Session expired. Please reconnect.';
+      errEl.classList.remove('hidden');
+      disconnectSalesforce();
+      return;
+    }
+    const data = await resp.json();
+
+    if (!data.workspaces || data.workspaces.length === 0) {
+      select.innerHTML = '<option value="">No workspaces found</option>';
+      errEl.textContent = 'No CMS workspaces found in your org. Please create one in Setup > Digital Experiences > CMS Workspaces.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    select.innerHTML = '<option value="">Select a workspace...</option>';
+    data.workspaces.forEach(ws => {
+      const opt = document.createElement('option');
+      opt.value = ws.id;
+      opt.textContent = ws.name;
+      select.appendChild(opt);
+    });
+
+    // When workspace is selected, enable deploy section
+    select.addEventListener('change', function() {
+      const deploySection = document.getElementById('deploy-action');
+      if (this.value) {
+        deploySection.classList.remove('opacity-50', 'pointer-events-none');
+      } else {
+        deploySection.classList.add('opacity-50', 'pointer-events-none');
+      }
+    });
+
+  } catch (e) {
+    select.innerHTML = '<option value="">Error loading workspaces</option>';
+    errEl.textContent = 'Failed to load workspaces: ' + e.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function showCreateWorkspace() {
+  const form = document.getElementById('createWorkspaceForm');
+  form.classList.remove('hidden');
+  // Pre-fill with the brand/account name
+  const brandName = document.getElementById('prevBrandName').value || '';
+  document.getElementById('newWorkspaceName').value = brandName;
+  document.getElementById('newWorkspaceName').focus();
+  document.getElementById('createWorkspaceError').classList.add('hidden');
+  document.getElementById('createWorkspaceSuccess').classList.add('hidden');
+}
+
+function hideCreateWorkspace() {
+  document.getElementById('createWorkspaceForm').classList.add('hidden');
+}
+
+async function createNewWorkspace() {
+  const nameInput = document.getElementById('newWorkspaceName');
+  const name = nameInput.value.trim();
+  const errEl = document.getElementById('createWorkspaceError');
+  const successEl = document.getElementById('createWorkspaceSuccess');
+  errEl.classList.add('hidden');
+  successEl.classList.add('hidden');
+
+  if (!name) {
+    errEl.textContent = 'Please enter a workspace name.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  // Disable button while creating
+  const btn = document.getElementById('btnConfirmCreate');
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Creating...`;
+  btn.classList.add('opacity-60');
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+
+    if (resp.status === 401) {
+      errEl.textContent = 'Session expired. Please reconnect.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      throw new Error(data.error || 'Failed to create workspace');
+    }
+
+    // Add the new workspace to the dropdown and select it
+    const select = document.getElementById('workspaceSelect');
+    const opt = document.createElement('option');
+    opt.value = data.workspace.id;
+    opt.textContent = data.workspace.name;
+    select.appendChild(opt);
+    select.value = data.workspace.id;
+
+    // Trigger change event to enable deploy section
+    select.dispatchEvent(new Event('change'));
+
+    successEl.textContent = `Workspace "${data.workspace.name}" created!`;
+    successEl.classList.remove('hidden');
+
+    // Hide form after a moment
+    setTimeout(() => hideCreateWorkspace(), 1500);
+
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create';
+    btn.classList.remove('opacity-60');
+  }
+}
+
+async function executeDeploy() {
+  const workspaceId = document.getElementById('workspaceSelect').value;
+  if (!workspaceId) return;
+
+  const config = gatherFinalConfig();
+
+  // Show progress, hide button
+  document.getElementById('btnDeploy').classList.add('hidden');
+  const progress = document.getElementById('deployProgress');
+  const progressBar = document.getElementById('deployProgressBar');
+  const statusText = document.getElementById('deployStatusText');
+  const errEl = document.getElementById('deployError');
+  progress.classList.remove('hidden');
+  errEl.classList.add('hidden');
+
+  const steps = [
+    { pct: 15, msg: 'Uploading images to CMS...' },
+    { pct: 45, msg: 'Creating brand content...' },
+    { pct: 70, msg: 'Publishing content...' },
+    { pct: 90, msg: 'Finishing up...' }
+  ];
+
+  let stepIdx = 0;
+  const stepInterval = setInterval(() => {
+    if (stepIdx < steps.length) {
+      progressBar.style.width = steps[stepIdx].pct + '%';
+      statusText.textContent = steps[stepIdx].msg;
+      stepIdx++;
+    }
+  }, 1500);
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config, workspaceId })
+    });
+
+    clearInterval(stepInterval);
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `Deployment failed (${resp.status})`);
+    }
+
+    const result = await resp.json();
+
+    if (!result.success) {
+      throw new Error(result.error || 'Deployment failed');
+    }
+
+    progressBar.style.width = '100%';
+    statusText.textContent = 'Done!';
+
+    // Show success step
+    setTimeout(() => {
+      showDeploySuccess(config, result);
+    }, 600);
+
+  } catch (e) {
+    clearInterval(stepInterval);
+    progress.classList.add('hidden');
+    document.getElementById('btnDeploy').classList.remove('hidden');
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function showDeploySuccess(config, result) {
+  document.getElementById('successBrandName').textContent = config.brandName;
+  const wsSelect = document.getElementById('workspaceSelect');
+  document.getElementById('successWorkspace').textContent = wsSelect.options[wsSelect.selectedIndex].text;
+  document.getElementById('successItemCount').textContent = result.totalCreated || result.contentIds.length;
+
+  // Set CMS link
+  const instanceUrl = document.getElementById('connectedOrg').textContent;
+  document.getElementById('successCmsLink').href = `https://${instanceUrl}/lightning/cms/home`;
+
+  // Show warnings if any
+  if (result.errors && result.errors.length > 0) {
+    const warnEl = document.getElementById('successWarnings');
+    warnEl.innerHTML = '<strong>Note:</strong> ' + result.errors.join('<br>');
+    warnEl.classList.remove('hidden');
+  }
+
+  showStep('step-confirm');
+}
+
+// On page load, check for OAuth redirect (same-window fallback)
+if (new URLSearchParams(window.location.search).get('connected') === '1') {
+  // Remove query param from URL
+  window.history.replaceState({}, '', '/');
+  // If we have a stored brand config, resume deploy flow
+  const stored = localStorage.getItem('brandConfig');
+  if (stored) {
+    try {
+      const config = JSON.parse(stored);
+      analysisResult = {
+        brandName: config.brandName,
+        description: config.description,
+        identity: config.identity,
+        toneLabel: config.tone.label,
+        toneDescription: config.tone.description,
+        colors: config.colors,
+        headingFont: config.typography.headingFont,
+        bodyFont: config.typography.bodyFont,
+        buttonColor: config.buttonStyle.color,
+        buttonRadius: config.buttonStyle.borderRadius,
+        images: config.images.map(i => ({ ...i, selected: true }))
+      };
+      renderPreview();
+      setTimeout(() => startDeploy(), 300);
+    } catch (e) {}
+  }
 }
 </script>
 
