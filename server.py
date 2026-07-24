@@ -689,6 +689,40 @@ def scan_more_images():
         return jsonify({'error': str(e)[:200]}), 500
 
 
+@app.route('/api/scan-page', methods=['POST'])
+def scan_specific_page():
+    """Scan a specific URL for images."""
+    data = request.json or {}
+    page_url = data.get('pageUrl', '').strip()
+    existing_urls = set(data.get('existingImageUrls', []))
+
+    if not page_url:
+        return jsonify({'error': 'pageUrl is required'}), 400
+
+    if not page_url.startswith('http'):
+        page_url = 'https://' + page_url
+
+    try:
+        html, final_url = fetch_page(page_url, timeout=10)
+        soup = BeautifulSoup(html, 'html.parser')
+        page_images = extract_images(soup, final_url)
+
+        new_images = []
+        for img in page_images:
+            if img['url'] not in existing_urls:
+                img['alt'] = img.get('alt', 'Image') + ' (scanned)'
+                new_images.append(img)
+                existing_urls.add(img['url'])
+
+        return jsonify({
+            'images': new_images,
+            'totalFound': len(new_images),
+            'pageTitle': (soup.find('title').get_text(strip=True) if soup.find('title') else page_url)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
 @app.route('/')
 def index():
     return send_from_directory('.', 'brand-builder.html')
