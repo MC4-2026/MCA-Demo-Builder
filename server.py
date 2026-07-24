@@ -4,6 +4,7 @@ MCA Demo Brand Builder — Backend Server
 Fetches websites server-side, extracts brand assets (colors, fonts, tone, images).
 """
 
+import os
 import re
 import json
 import sys
@@ -11,15 +12,21 @@ import uuid
 import colorsys
 import threading
 from collections import Counter
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, redirect, session
 from flask_cors import CORS
 
 app = Flask(__name__, static_folder='.')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-prod')
 CORS(app)
+
+# ─── OAuth Configuration ───
+SF_CLIENT_ID = os.environ.get('SF_CLIENT_ID', '')
+SF_CLIENT_SECRET = os.environ.get('SF_CLIENT_SECRET', '')
+SF_CALLBACK_URL = os.environ.get('SF_CALLBACK_URL', 'http://localhost:5111/oauth/callback')
 
 # In-memory job store for async analysis
 jobs = {}  # job_id -> {'status': 'pending'|'done'|'error', 'result': ..., 'error': ...}
@@ -621,8 +628,414 @@ def index():
     return send_from_directory('.', 'brand-builder.html')
 
 
+# ─── OAuth & Salesforce Deploy ───
+
+FONT_MAP = {
+    'arial': 'arial', 'arial black': 'arialBlack', 'calibri': 'calibri',
+    'comic sans ms': 'comicSansMs', 'courier new': 'courierNew', 'georgia': 'georgia',
+    'impact': 'impact', 'lucida console': 'lucidaConsole',
+    'lucida sans unicode': 'lucidaSansUnicode', 'palatino linotype': 'palatinoLinotype',
+    'tahoma': 'tahoma', 'times new roman': 'timesNewRoman', 'trebuchet ms': 'trebuchetMs',
+    'verdana': 'verdana', 'century gothic': 'verdana', 'helvetica': 'arial',
+    'segoe ui': 'calibri', 'system default': 'arial', 'san francisco': 'arial',
+    'open sans': 'arial', 'roboto': 'arial', 'lato': 'arial', 'montserrat': 'arial',
+    'poppins': 'arial', 'inter': 'arial', 'nunito': 'arial', 'raleway': 'arial',
+}
+
+
+def map_font_key(font_name):
+    """Map a font name to the closest available CMS brand font key."""
+    key = font_name.lower().strip()
+    if key in FONT_MAP:
+        return FONT_MAP[key]
+    # Try partial match
+    for k, v in FONT_MAP.items():
+        if k in key or key in k:
+            return v
+    return 'arial'
+
+
+def darken_hex(hex_color, factor=0.15):
+    """Darken a hex color by a factor."""
+    rgb = hex_to_rgb(hex_color)
+    if not rgb:
+        return hex_color
+    r, g, b = rgb
+    r = max(0, int(r * (1 - factor)))
+    g = max(0, int(g * (1 - factor)))
+    b = max(0, int(b * (1 - factor)))
+    return rgb_to_hex(r, g, b)
+
+
+def build_brand_content_body(config):
+    """Build the sfdc_cms__brand contentBody from app's brand config JSON."""
+    colors = config.get('colors', [])
+    primary = colors[0]['hex'] if len(colors) > 0 else '#0176d3'
+    secondary = colors[1]['hex'] if len(colors) > 1 else darken_hex(primary)
+    accent = colors[2]['hex'] if len(colors) > 2 else '#333333'
+
+    font_key = map_font_key(config.get('typography', {}).get('bodyFont', 'Arial'))
+    btn_radius_px = config.get('buttonStyle', {}).get('borderRadius', 4)
+    btn_radius_rem = round(btn_radius_px / 16, 4)
+
+    tone = config.get('tone', {})
+    identity = config.get('identity', '')
+
+    return {
+        "sfdc_cms:title": config.get('brandName', 'Brand'),
+        "sfdc_cms:description": config.get('description', ''),
+        "sfdc_cms:einsteinBrandProperties": {
+            "identity": identity,
+            "personality": {
+                "defaultPersonality": "casual",
+                "personalities": {
+                    "casual": {
+                        "label": tone.get('label', 'Friendly'),
+                        "value": tone.get('description', 'A warm, conversational style.')
+                    },
+                    "professional": {
+                        "label": "Professional",
+                        "value": "A formal style that gets straight to the point."
+                    },
+                    "plain": {
+                        "label": "Plain",
+                        "value": "A style that uses brief, declarative sentences in an active voice."
+                    },
+                    "inquisitive": {
+                        "label": "Inquisitive",
+                        "value": "A style that poses open-ended questions relevant to the recipient's interests."
+                    },
+                    "urgent": {
+                        "label": "Urgent",
+                        "value": "A style that uses clear, concise language and time-sensitive words."
+                    }
+                }
+            }
+        },
+        "baseFontFamily": "{!$brand.fontFamily." + font_key + "}",
+        "baseFontSize": {"unit": "px", "value": 16},
+        "colorScheme": {
+            "contrast": accent,
+            "neutral": "#f5f5f0",
+            "primaryAccent": primary,
+            "primaryAccentContrast": "#ffffff",
+            "primaryAccentContrastDerived": "#e5e5e5",
+            "primaryAccentDerived": secondary,
+            "root": "#ffffff"
+        },
+        "borderRadius": {
+            "round": {"unit": "rem", "value": btn_radius_rem},
+            "square": {"unit": "rem", "value": 0}
+        },
+        "borderWeight": {
+            "medium": {"unit": "rem", "value": 0.125},
+            "none": {"unit": "rem", "value": 0},
+            "thick": {"unit": "rem", "value": 0.1875},
+            "thin": {"unit": "rem", "value": 0.0625}
+        },
+        "buttonStyleGroup": {
+            "primary": {
+                "lightning:borderRadius": "{!$brand.borderRadius.round}",
+                "lightning:borderWidth": "{!$brand.borderWeight.thin}",
+                "lightning:buttonColorGroup": {
+                    "backgroundColor": "{!$brand.colorScheme.primaryAccent}",
+                    "backgroundHoverColor": "{!$brand.colorScheme.primaryAccentDerived}",
+                    "borderColor": "{!$brand.colorScheme.primaryAccent}",
+                    "borderHoverColor": "{!$brand.colorScheme.primaryAccentDerived}",
+                    "textColor": "{!$brand.colorScheme.primaryAccentContrast}",
+                    "textHoverColor": "{!$brand.colorScheme.primaryAccentContrastDerived}"
+                },
+                "lightning:padding": {"bottom": {"unit": "rem", "value": 0.5}, "left": {"unit": "rem", "value": 1}, "right": {"unit": "rem", "value": 1}, "top": {"unit": "rem", "value": 0.5}},
+                "lightning:typography": "{!$brand.typography.button.button1}"
+            },
+            "secondary": {
+                "lightning:borderRadius": "{!$brand.borderRadius.round}",
+                "lightning:borderWidth": "{!$brand.borderWeight.thin}",
+                "lightning:buttonColorGroup": {
+                    "backgroundColor": "{!$brand.colorScheme.primaryAccentContrast}",
+                    "backgroundHoverColor": "{!$brand.colorScheme.primaryAccentContrastDerived}",
+                    "borderColor": "{!$brand.colorScheme.primaryAccent}",
+                    "borderHoverColor": "{!$brand.colorScheme.primaryAccentDerived}",
+                    "textColor": "{!$brand.colorScheme.primaryAccent}",
+                    "textHoverColor": "{!$brand.colorScheme.primaryAccentDerived}"
+                },
+                "lightning:padding": {"bottom": {"unit": "rem", "value": 0.5}, "left": {"unit": "rem", "value": 1}, "right": {"unit": "rem", "value": 1}, "top": {"unit": "rem", "value": 0.5}},
+                "lightning:typography": "{!$brand.typography.button.button1}"
+            },
+            "tertiary": {
+                "lightning:borderRadius": "{!$brand.borderRadius.round}",
+                "lightning:borderWidth": "{!$brand.borderWeight.none}",
+                "lightning:buttonColorGroup": {
+                    "textColor": "{!$brand.colorScheme.primaryAccent}",
+                    "textHoverColor": "{!$brand.colorScheme.primaryAccentDerived}"
+                },
+                "lightning:padding": {"bottom": {"unit": "rem", "value": 0.5}, "left": {"unit": "rem", "value": 1}, "right": {"unit": "rem", "value": 1}, "top": {"unit": "rem", "value": 0.5}},
+                "lightning:typography": "{!$brand.typography.button.button1}"
+            }
+        },
+        "fontFamily": {
+            "arial": {"category": "sans-serif", "fallbacks": ["Helvetica"], "name": "Arial"},
+            "arialBlack": {"category": "sans-serif", "fallbacks": ["Gadget"], "name": "Arial Black"},
+            "calibri": {"category": "sans-serif", "fallbacks": ["Candara", "Segoe", "Segoe UI", "Optima", "Arial"], "name": "Calibri"},
+            "comicSansMs": {"category": "sans-serif", "fallbacks": ["cursive"], "name": "Comic Sans MS"},
+            "courierNew": {"category": "monospace", "name": "Courier New"},
+            "georgia": {"category": "serif", "name": "Georgia"},
+            "impact": {"category": "sans-serif", "fallbacks": ["Charcoal"], "name": "Impact"},
+            "lucidaConsole": {"category": "monospace", "fallbacks": ["Monaco"], "name": "Lucida Console"},
+            "lucidaSansUnicode": {"category": "sans-serif", "fallbacks": ["Lucida Grande"], "name": "Lucida Sans Unicode"},
+            "palatinoLinotype": {"category": "serif", "fallbacks": ["Book Antiqua", "Palatino"], "name": "Palatino Linotype"},
+            "tahoma": {"category": "sans-serif", "fallbacks": ["Geneva"], "name": "Tahoma"},
+            "timesNewRoman": {"category": "serif", "fallbacks": ["Times"], "name": "Times New Roman"},
+            "trebuchetMs": {"category": "sans-serif", "name": "Trebuchet MS"},
+            "verdana": {"category": "sans-serif", "fallbacks": ["Geneva"], "name": "Verdana"}
+        },
+        "fontSize": {
+            "large": {"unit": "rem", "value": 1.125}, "medium": {"unit": "rem", "value": 1},
+            "small": {"unit": "rem", "value": 0.8125}, "xLarge": {"unit": "rem", "value": 1.5},
+            "xSmall": {"unit": "rem", "value": 0.625}, "xxLarge": {"unit": "rem", "value": 2}
+        },
+        "fontWeight": {"bold": 700, "light": 300, "normal": 400},
+        "letterSpacing": {"compact": {"unit": "px", "value": -1}, "normal": "normal", "wide": {"unit": "px", "value": 6}},
+        "spacing": {
+            "large": {"bottom": {"unit": "rem", "value": 1.5}, "left": {"unit": "rem", "value": 1.5}, "right": {"unit": "rem", "value": 1.5}, "top": {"unit": "rem", "value": 1.5}},
+            "medium": {"bottom": {"unit": "rem", "value": 1}, "left": {"unit": "rem", "value": 1}, "right": {"unit": "rem", "value": 1}, "top": {"unit": "rem", "value": 1}},
+            "none": {"bottom": {"unit": "rem", "value": 0}, "left": {"unit": "rem", "value": 0}, "right": {"unit": "rem", "value": 0}, "top": {"unit": "rem", "value": 0}},
+            "small": {"bottom": {"unit": "rem", "value": 0.75}, "left": {"unit": "rem", "value": 0.75}, "right": {"unit": "rem", "value": 0.75}, "top": {"unit": "rem", "value": 0.75}},
+            "xLarge": {"bottom": {"unit": "rem", "value": 2}, "left": {"unit": "rem", "value": 2}, "right": {"unit": "rem", "value": 2}, "top": {"unit": "rem", "value": 2}},
+            "xSmall": {"bottom": {"unit": "rem", "value": 0.5}, "left": {"unit": "rem", "value": 0.5}, "right": {"unit": "rem", "value": 0.5}, "top": {"unit": "rem", "value": 0.5}}
+        },
+        "typography": {
+            "button": {"button1": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.medium}", "fontWeight": "{!$brand.fontWeight.normal}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"}},
+            "heading": {
+                "heading1": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.xxLarge}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.3, "textTransform": "none"},
+                "heading2": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.xLarge}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.4, "textTransform": "none"},
+                "heading3": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.large}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"},
+                "heading4": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.medium}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"},
+                "heading5": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.small}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"},
+                "heading6": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.xSmall}", "fontWeight": "{!$brand.fontWeight.bold}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"}
+            },
+            "input": {"input1": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.medium}", "fontWeight": "{!$brand.fontWeight.normal}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"}},
+            "label": {"label1": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.small}", "fontWeight": "{!$brand.fontWeight.normal}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"}},
+            "paragraph": {
+                "paragraph1": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.medium}", "fontWeight": "{!$brand.fontWeight.normal}", "letterSpacing": "normal", "lineHeight": 1.6, "textTransform": "none"},
+                "paragraph2": {"fontFamily": "{!$brand.baseFontFamily}", "fontSize": "{!$brand.fontSize.small}", "fontWeight": "{!$brand.fontWeight.normal}", "letterSpacing": "normal", "lineHeight": 1.5, "textTransform": "none"}
+            }
+        },
+        "lightning:dataProviders": [],
+        "sfdc_cms:variants": []
+    }
+
+
+def sf_api(method, path, access_token, instance_url, body=None):
+    """Make an authenticated Salesforce REST API call."""
+    url = instance_url.rstrip('/') + path
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    if method == 'GET':
+        resp = requests.get(url, headers=headers, timeout=30)
+    elif method == 'POST':
+        resp = requests.post(url, headers=headers, json=body, timeout=30)
+    else:
+        resp = requests.request(method, url, headers=headers, json=body, timeout=30)
+    return resp
+
+
+@app.route('/oauth/login')
+def oauth_login():
+    """Redirect user to Salesforce OAuth login."""
+    if not SF_CLIENT_ID:
+        return jsonify({'error': 'OAuth not configured. Set SF_CLIENT_ID environment variable.'}), 500
+
+    env = request.args.get('env', 'production')
+    login_host = 'test.salesforce.com' if env == 'sandbox' else 'login.salesforce.com'
+
+    auth_url = (
+        f'https://{login_host}/services/oauth2/authorize'
+        f'?response_type=code'
+        f'&client_id={quote(SF_CLIENT_ID)}'
+        f'&redirect_uri={quote(SF_CALLBACK_URL)}'
+        f'&scope=api+refresh_token'
+    )
+    return redirect(auth_url)
+
+
+@app.route('/oauth/callback')
+def oauth_callback():
+    """Handle OAuth callback — exchange code for tokens."""
+    code = request.args.get('code')
+    error = request.args.get('error')
+    error_desc = request.args.get('error_description', '')
+
+    if error:
+        return f"""<script>
+            window.opener ? window.opener.postMessage({{type:'oauth_error',error:'{error_desc}'}}, '*') : null;
+            window.close();
+        </script>""", 200
+
+    if not code:
+        return jsonify({'error': 'No authorization code received'}), 400
+
+    # Try production first, then sandbox
+    for host in ['login.salesforce.com', 'test.salesforce.com']:
+        token_resp = requests.post(f'https://{host}/services/oauth2/token', data={
+            'grant_type': 'authorization_code',
+            'client_id': SF_CLIENT_ID,
+            'client_secret': SF_CLIENT_SECRET,
+            'redirect_uri': SF_CALLBACK_URL,
+            'code': code
+        }, timeout=30)
+        if token_resp.ok:
+            break
+
+    if not token_resp.ok:
+        err_msg = token_resp.json().get('error_description', 'Token exchange failed')
+        return f"""<script>
+            window.opener ? window.opener.postMessage({{type:'oauth_error',error:'{err_msg}'}}, '*') : null;
+            window.close();
+        </script>""", 200
+
+    tokens = token_resp.json()
+    session['sf_access_token'] = tokens['access_token']
+    session['sf_instance_url'] = tokens['instance_url']
+    session['sf_refresh_token'] = tokens.get('refresh_token', '')
+
+    # Post success message back to opener and close popup
+    return """<!DOCTYPE html>
+<html><head><title>Connected!</title></head>
+<body>
+<script>
+    if (window.opener) {
+        window.opener.postMessage({type:'oauth_success'}, '*');
+        window.close();
+    } else {
+        // Fallback — redirected in same window
+        window.location.href = '/?connected=1';
+    }
+</script>
+<p>Connected to Salesforce! You can close this window.</p>
+</body></html>"""
+
+
+@app.route('/api/sf/workspaces')
+def get_workspaces():
+    """List CMS workspaces in the connected Salesforce org."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    resp = sf_api('GET',
+        '/services/data/v62.0/query?q=' + quote("SELECT Id, Name FROM ManagedContentSpace ORDER BY Name"),
+        token, instance)
+
+    if resp.status_code == 401:
+        return jsonify({'error': 'Session expired. Please reconnect.'}), 401
+    if not resp.ok:
+        return jsonify({'error': 'Failed to fetch workspaces'}), 500
+
+    records = resp.json().get('records', [])
+    return jsonify({'workspaces': [{'id': r['Id'], 'name': r['Name']} for r in records]})
+
+
+@app.route('/api/sf/deploy', methods=['POST'])
+def deploy_brand():
+    """Deploy brand config + images to Salesforce CMS."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    config = data.get('config', {})
+    workspace_id = data.get('workspaceId', '')
+    if not workspace_id:
+        return jsonify({'error': 'No workspace selected'}), 400
+
+    content_ids = []
+    errors = []
+
+    # 1. Upload images as sfdc_cms__image items
+    images = config.get('images', [])
+    for img in images:
+        try:
+            img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+                'contentSpaceOrFolderId': workspace_id,
+                'contentType': 'sfdc_cms__image',
+                'title': (config.get('brandName', 'Brand') + '_' + (img.get('alt', 'image'))[:40]).replace(' ', '_'),
+                'contentBody': {
+                    'sfdc_cms:media': {
+                        'source': {'type': 'url', 'url': img['url']}
+                    }
+                }
+            })
+            if img_resp.ok:
+                content_ids.append(img_resp.json()['managedContentId'])
+            else:
+                errors.append(f'Image upload failed: {img.get("alt", "unknown")}')
+        except Exception as e:
+            errors.append(f'Image error: {str(e)[:100]}')
+
+    # 2. Create Brand content item
+    try:
+        brand_body = build_brand_content_body(config)
+        brand_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+            'contentSpaceOrFolderId': workspace_id,
+            'contentType': 'sfdc_cms__brand',
+            'title': config.get('brandName', 'Brand'),
+            'contentBody': brand_body
+        })
+        if brand_resp.ok:
+            brand_id = brand_resp.json()['managedContentId']
+            content_ids.append(brand_id)
+        else:
+            err_detail = brand_resp.text[:300]
+            return jsonify({'error': f'Brand creation failed: {err_detail}', 'imageErrors': errors}), 500
+    except Exception as e:
+        return jsonify({'error': f'Brand creation error: {str(e)[:200]}', 'imageErrors': errors}), 500
+
+    # 3. Publish all content
+    if content_ids:
+        try:
+            pub_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents/publish', token, instance, {
+                'contentIds': content_ids
+            })
+            if not pub_resp.ok:
+                errors.append('Publishing failed — content created but not published.')
+        except Exception as e:
+            errors.append(f'Publish error: {str(e)[:100]}')
+
+    return jsonify({
+        'success': True,
+        'brandId': brand_id,
+        'contentIds': content_ids,
+        'totalCreated': len(content_ids),
+        'errors': errors
+    })
+
+
+@app.route('/api/sf/status')
+def sf_status():
+    """Check if user is connected to Salesforce."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    return jsonify({
+        'connected': bool(token and instance),
+        'instanceUrl': instance or ''
+    })
+
+
+@app.route('/oauth/logout')
+def oauth_logout():
+    """Clear Salesforce session."""
+    session.pop('sf_access_token', None)
+    session.pop('sf_instance_url', None)
+    session.pop('sf_refresh_token', None)
+    return jsonify({'success': True})
+
+
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get('PORT', sys.argv[1] if len(sys.argv) > 1 else 5111))
     print(f'Starting Brand Builder server on http://localhost:{port}')
     app.run(host='0.0.0.0', port=port, debug=False)
