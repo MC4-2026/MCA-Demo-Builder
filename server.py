@@ -416,8 +416,14 @@ def extract_images(soup, base_url):
         if not src:
             continue
 
-        w = int(img.get('width', 0) or 0)
-        h = int(img.get('height', 0) or 0)
+        try:
+            w = int(img.get('width', 0) or 0)
+        except (ValueError, TypeError):
+            w = 0
+        try:
+            h = int(img.get('height', 0) or 0)
+        except (ValueError, TypeError):
+            h = 0
         is_large = w > 400 or h > 200
 
         parent_class = ' '.join(img.parent.get('class', [])) if img.parent else ''
