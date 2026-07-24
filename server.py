@@ -945,6 +945,42 @@ def get_workspaces():
     return jsonify({'workspaces': [{'id': r['Id'], 'name': r['Name']} for r in records]})
 
 
+@app.route('/api/sf/workspaces', methods=['POST'])
+def create_workspace():
+    """Create a new CMS workspace in the connected Salesforce org."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Workspace name is required'}), 400
+
+    # Sanitize name — replace spaces with underscores for API compatibility
+    api_name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
+    resp = sf_api('POST', '/services/data/v62.0/connect/cms/spaces', token, instance, {
+        'name': api_name
+    })
+
+    if resp.status_code == 401:
+        return jsonify({'error': 'Session expired. Please reconnect.'}), 401
+    if not resp.ok:
+        err_detail = resp.text[:300]
+        return jsonify({'error': f'Failed to create workspace: {err_detail}'}), 500
+
+    result = resp.json()
+    return jsonify({
+        'success': True,
+        'workspace': {
+            'id': result.get('id', ''),
+            'name': result.get('name', api_name)
+        }
+    })
+
+
 @app.route('/api/sf/deploy', methods=['POST'])
 def deploy_brand():
     """Deploy brand config + images to Salesforce CMS."""
