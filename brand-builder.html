@@ -239,6 +239,28 @@
         </button>
         <span id="scanMoreStatus" class="text-xs text-muted hidden"></span>
       </div>
+
+      <!-- Scan a Specific Page -->
+      <div class="mt-3 p-4 bg-surface rounded-lg border border-gray-200">
+        <h4 class="text-sm font-semibold text-secondary mb-3 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+          Scan a Specific Page for Images
+        </h4>
+        <div class="flex items-end gap-3 flex-wrap">
+          <div class="flex-1 min-w-[250px]">
+            <label class="block text-xs font-medium text-muted mb-1">Page URL</label>
+            <input id="scanPageUrl" type="url" placeholder="https://www.example.com/about"
+              class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition" />
+          </div>
+          <button id="btnScanPage" onclick="scanSpecificPage()"
+            class="px-4 py-2 border border-primary text-primary text-sm font-medium rounded-lg hover:bg-primary/5 transition cursor-pointer flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            Scan Page
+          </button>
+        </div>
+        <div id="scanPageStatus" class="hidden mt-2 text-xs text-muted"></div>
+        <div id="scanPageError" class="hidden mt-2 text-error text-xs font-medium"></div>
+      </div>
     </div>
 
     <!-- Action -->
@@ -760,6 +782,13 @@ function startDeploy() {
   document.getElementById('deployImageCount').textContent = config.images.length;
   document.getElementById('deployColorCount').textContent = config.colors.length;
 
+  // Reset deploy action state — fixes bug where button stays hidden after a previous deploy
+  document.getElementById('btnDeploy').classList.remove('hidden');
+  document.getElementById('deployProgress').classList.add('hidden');
+  document.getElementById('deployProgressBar').style.width = '0%';
+  document.getElementById('deployStatusText').textContent = 'Deploying...';
+  document.getElementById('deployError').classList.add('hidden');
+
   showStep('step-deploy');
 
   // Check if already connected
@@ -1119,6 +1148,63 @@ async function scanMorePages() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg> Scan More Pages`;
+    btn.classList.remove('opacity-60');
+  }
+}
+
+async function scanSpecificPage() {
+  const urlInput = document.getElementById('scanPageUrl');
+  const btn = document.getElementById('btnScanPage');
+  const statusEl = document.getElementById('scanPageStatus');
+  const errEl = document.getElementById('scanPageError');
+
+  errEl.classList.add('hidden');
+  statusEl.classList.add('hidden');
+
+  const pageUrl = urlInput.value.trim();
+  if (!pageUrl) {
+    errEl.textContent = 'Please enter a page URL to scan.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Scanning...`;
+  btn.classList.add('opacity-60');
+
+  try {
+    const existingUrls = analysisResult.images.map(i => i.url);
+
+    const resp = await fetch(`${API_BASE}/api/scan-page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageUrl, existingImageUrls: existingUrls })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      throw new Error(data.error || 'Failed to scan page');
+    }
+
+    if (data.images && data.images.length > 0) {
+      data.images.forEach(img => {
+        img.selected = true;
+        analysisResult.images.push(img);
+      });
+      renderImages(analysisResult.images);
+      statusEl.textContent = `Found ${data.images.length} new image(s) from "${data.pageTitle}"`;
+    } else {
+      statusEl.textContent = `No new images found on that page.`;
+    }
+    statusEl.classList.remove('hidden');
+    urlInput.value = '';
+
+  } catch (e) {
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg> Scan Page`;
     btn.classList.remove('opacity-60');
   }
 }
