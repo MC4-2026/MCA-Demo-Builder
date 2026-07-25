@@ -1527,8 +1527,13 @@ function showDeploySuccess(config, result) {
         detailHtml += `<div>✅ ${sr.emails.length} email(s) created and published</div>`;
       }
       if (sr.flow) {
-        const flowStatus = sr.flow.status === 'Deploying' ? '✅ Flow deploying' : '⚠️ Flow: ' + (sr.flow.error || sr.flow.status);
-        detailHtml += `<div>${flowStatus}: <strong>${sr.flow.name || ''}</strong></div>`;
+        let flowIcon = '⚠️';
+        let flowLabel = sr.flow.status;
+        if (sr.flow.status === 'Deployed') { flowIcon = '✅'; flowLabel = 'Flow deployed'; }
+        else if (sr.flow.status === 'Failed') { flowIcon = '❌'; flowLabel = 'Flow failed'; }
+        else if (sr.flow.status && sr.flow.status.startsWith('Deploying')) { flowIcon = '⏳'; flowLabel = 'Flow deploying'; }
+        detailHtml += `<div>${flowIcon} ${flowLabel}: <strong>${sr.flow.name || ''}</strong></div>`;
+        if (sr.flow.error) detailHtml += `<div class="text-error text-xs ml-4">${sr.flow.error}</div>`;
       }
       if (sr.campaign) {
         detailHtml += `<div>✅ Campaign created: <strong>${sr.campaign.name || ''}</strong></div>`;

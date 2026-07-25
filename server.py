@@ -11,6 +11,7 @@ import re
 import io
 import json
 import sys
+import time
 import uuid
 import zipfile
 import base64
@@ -2465,11 +2466,105 @@ def _deploy_email_series_internal(token, instance, data):
     created_emails = []
     errors = []
 
+    # Step 0: Re-host images to Salesforce so email img src URLs are reliable
+    # Upload each unique image URL as a ContentVersion and get the public download URL
+    rehosted_images = {}  # original_url -> salesforce_public_url
+
+    def _rehost_image(original_url, label='image'):
+        """Download image from URL and upload to Salesforce as ContentVersion.
+        Returns the public Salesforce download URL, or the original URL on failure."""
+        if not original_url or original_url in rehosted_images:
+            return rehosted_images.get(original_url, original_url)
+        try:
+            # Download the image
+            img_resp = requests.get(original_url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; BrandBuilder/1.0)'
+            })
+            if img_resp.status_code != 200:
+                return original_url
+
+            img_data = img_resp.content
+            content_type = img_resp.headers.get('Content-Type', 'image/png')
+
+            # Determine file extension
+            ext_map = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
+                       'image/svg+xml': '.svg', 'image/webp': '.webp', 'image/x-icon': '.ico'}
+            ext = ext_map.get(content_type.split(';')[0].strip(), '.png')
+            file_name = f"{brand_name}_{label}{ext}".replace(' ', '_')
+
+            # Upload as ContentVersion
+            img_b64 = base64.b64encode(img_data).decode('utf-8')
+            cv_body = {
+                'Title': f"{brand_name} {label}",
+                'PathOnClient': file_name,
+                'VersionData': img_b64,
+                'FirstPublishLocationId': None  # Personal library
+            }
+
+            cv_resp = sf_api('POST', '/services/data/v66.0/sobjects/ContentVersion',
+                             token, instance, body=cv_body)
+            if cv_resp.status_code in (200, 201):
+                cv_id = cv_resp.json().get('id', '')
+                # Query the ContentDistribution or use the standard download URL
+                # Get ContentDocumentId first
+                cv_detail = sf_api('GET', f'/services/data/v66.0/sobjects/ContentVersion/{cv_id}',
+                                   token, instance)
+                if cv_detail.ok:
+                    doc_id = cv_detail.json().get('ContentDocumentId', '')
+                    if doc_id:
+                        # Create ContentDistribution for public URL
+                        dist_body = {
+                            'Name': f"{brand_name} {label}",
+                            'ContentVersionId': cv_id,
+                            'PreferencesAllowViewInBrowser': True,
+                            'PreferencesNotifyOnVisit': False,
+                            'PreferencesAllowOriginalDownload': True
+                        }
+                        dist_resp = sf_api('POST', '/services/data/v66.0/sobjects/ContentDistribution',
+                                           token, instance, body=dist_body)
+                        if dist_resp.status_code in (200, 201):
+                            dist_id = dist_resp.json().get('id', '')
+                            # Query the DistributionPublicUrl
+                            dist_detail = sf_api('GET',
+                                f'/services/data/v66.0/sobjects/ContentDistribution/{dist_id}?fields=DistributionPublicUrl,ContentDownloadUrl',
+                                token, instance)
+                            if dist_detail.ok:
+                                public_url = dist_detail.json().get('ContentDownloadUrl', '') or \
+                                             dist_detail.json().get('DistributionPublicUrl', '')
+                                if public_url:
+                                    rehosted_images[original_url] = public_url
+                                    return public_url
+
+            # Fallback: return original URL
+            return original_url
+        except Exception as e:
+            errors.append(f"Image rehost ({label}): {str(e)[:100]}")
+            return original_url
+
+    # Collect unique image URLs from all emails and re-host them
+    all_logo_urls = set()
+    all_hero_urls = set()
+    for email_data in emails:
+        lu = email_data.get('logoUrl', '')
+        hu = email_data.get('heroUrl', '')
+        if lu:
+            all_logo_urls.add(lu)
+        if hu:
+            all_hero_urls.add(hu)
+
+    for lu in all_logo_urls:
+        _rehost_image(lu, 'logo')
+    for hu in all_hero_urls:
+        _rehost_image(hu, 'hero')
+
     # Step 1: Upload each email to CMS
     for i, email_data in enumerate(emails):
         copy_data = email_data.get('copy', {})
-        logo_url = email_data.get('logoUrl', '')
-        hero_url = email_data.get('heroUrl', '')
+        orig_logo = email_data.get('logoUrl', '')
+        orig_hero = email_data.get('heroUrl', '')
+        # Use re-hosted URLs (falls back to original if re-host failed)
+        logo_url = rehosted_images.get(orig_logo, orig_logo)
+        hero_url = rehosted_images.get(orig_hero, orig_hero)
 
         email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
@@ -2597,12 +2692,72 @@ def _deploy_email_series_internal(token, instance, data):
                     deploy_id_el = root.find('.//met:id', ns)
                     deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
 
-                    flow_result = {
-                        'id': deploy_id,
-                        'name': flow_data['flowLabel'],
-                        'apiName': flow_api_name,
-                        'status': 'Deploying'
-                    }
+                    # Poll checkDeployStatus until done (max 30 attempts × 2s = 60s)
+                    deploy_status = 'InProgress'
+                    deploy_error_msg = ''
+                    for _poll in range(30):
+                        time.sleep(2)
+                        check_soap = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:met="http://soap.sforce.com/2006/04/metadata">
+  <soap:Header>
+    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
+  </soap:Header>
+  <soap:Body>
+    <met:checkDeployStatus>
+      <met:asyncProcessId>{deploy_id}</met:asyncProcessId>
+      <met:includeDetails>true</met:includeDetails>
+    </met:checkDeployStatus>
+  </soap:Body>
+</soap:Envelope>'''
+                        check_resp = requests.post(
+                            f"{instance}/services/Soap/m/66.0",
+                            headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'checkDeployStatus'},
+                            data=check_soap.encode('utf-8'),
+                            timeout=15
+                        )
+                        if check_resp.status_code == 200:
+                            check_root = ET.fromstring(check_resp.text)
+                            done_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}done')
+                            success_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}success')
+                            status_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}status')
+                            if done_el is not None and done_el.text == 'true':
+                                if success_el is not None and success_el.text == 'true':
+                                    deploy_status = 'Succeeded'
+                                else:
+                                    deploy_status = 'Failed'
+                                    # Extract error message
+                                    problem_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}problem')
+                                    if problem_el is not None and problem_el.text:
+                                        deploy_error_msg = problem_el.text[:300]
+                                    else:
+                                        deploy_error_msg = check_resp.text[:300]
+                                break
+                    else:
+                        deploy_status = 'Timeout'
+
+                    if deploy_status == 'Succeeded':
+                        flow_result = {
+                            'id': deploy_id,
+                            'name': flow_data['flowLabel'],
+                            'apiName': flow_api_name,
+                            'status': 'Deployed'
+                        }
+                    elif deploy_status == 'Failed':
+                        errors.append(f"Flow deploy failed: {deploy_error_msg}")
+                        flow_result = {
+                            'name': flow_data['flowLabel'],
+                            'apiName': flow_api_name,
+                            'status': 'Failed',
+                            'error': deploy_error_msg
+                        }
+                    else:
+                        flow_result = {
+                            'id': deploy_id,
+                            'name': flow_data['flowLabel'],
+                            'apiName': flow_api_name,
+                            'status': 'Deploying (timeout waiting for confirmation)'
+                        }
                 else:
                     errors.append(f"Flow creation failed: {deploy_resp.status_code} - {deploy_resp.text[:200]}")
                     flow_result = {
@@ -2669,11 +2824,12 @@ def _deploy_email_series_internal(token, instance, data):
                 except Exception:
                     pass
 
+                # Create standard Campaign Brief (Brief object)
                 tone = config.get('tone', {})
                 tone_label = tone.get('label', 'Professional') if isinstance(tone, dict) else str(tone)
                 identity = config.get('identity', '')
-                colors = config.get('colors', [])
                 industry = config.get('industry', '')
+                brand_content_id = data.get('brandContentId', '')
 
                 subject_lines = []
                 cta_texts = []
@@ -2684,102 +2840,58 @@ def _deploy_email_series_internal(token, instance, data):
                     if c.get('cta_text'):
                         cta_texts.append(c['cta_text'])
 
+                if series_key == 'nurture':
+                    primary_goal = 'Drive engagement, increase conversions, and build brand awareness'
+                else:
+                    primary_goal = 'Onboard new customers, drive product adoption, and build relationship'
+
                 brief_fields = {
                     'Name': f"{brand_name} {series['name']} Brief",
-                    'DICE_CBB_Campaign__c': campaign_id,
-                    'DICE_CBB_Brand_Voice__c': tone_label,
-                    'DICE_CBB_Channels__c': 'Email',
-                    'DICE_CBB_Description__c': identity or f"{brand_name} email campaign",
-                    'DICE_CBB_Key_Messages__c': '\n'.join(subject_lines) if subject_lines else brand_name,
-                    'DICE_CBB_Subject_Line_Options__c': '\n'.join(subject_lines) if subject_lines else '',
-                    'DICE_CBB_CTAs__c': '\n'.join(cta_texts) if cta_texts else '',
-                    'DICE_CBB_Target_Audience__c': industry or 'General audience',
-                    'DICE_CBB_Status__c': 'Draft',
-                    'DICE_CBB_Updated_Date__c': today_str,
+                    'Description': identity or f"{brand_name} {series['name']} email campaign",
+                    'KeyMessage': '\n'.join(subject_lines) if subject_lines else brand_name,
+                    'TargetAudience': industry or 'General audience',
+                    'PrimaryGoal': primary_goal,
+                    'PrimaryCtas': '\n'.join(cta_texts) if cta_texts else '',
+                    'PrimaryKpi': 'Open Rate, Click-Through Rate, Conversion Rate',
                 }
 
-                if series_key == 'nurture':
-                    brief_fields['DICE_CBB_Objectives__c'] = 'Drive engagement\nIncrease conversions\nBuild brand awareness'
-                else:
-                    brief_fields['DICE_CBB_Objectives__c'] = 'Onboard new customers\nDrive product adoption\nBuild relationship'
-
-                if user_id:
-                    brief_fields['DICE_CBB_Updated_By__c'] = user_id
+                if bu_id:
+                    brief_fields['BusinessUnitId'] = bu_id
+                if brand_content_id:
+                    brief_fields['BrandId'] = brand_content_id
 
                 try:
-                    brief_describe = sf_api('GET', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c/describe',
-                                            token, instance)
-                    if brief_describe.status_code == 404:
-                        campaign_result['briefSkipped'] = True
-                        campaign_result['briefNote'] = 'Campaign Brief Builder not installed on this org'
-                    else:
-                        brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c',
-                                            token, instance, body=brief_fields)
-                        if brief_resp.status_code in (200, 201):
-                            brief_id = brief_resp.json().get('id', '')
-                            campaign_result['briefId'] = brief_id
-                            campaign_result['briefName'] = brief_fields['Name']
+                    brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/Brief',
+                                        token, instance, body=brief_fields)
+                    if brief_resp.status_code in (200, 201):
+                        brief_id = brief_resp.json().get('id', '')
+                        campaign_result['briefId'] = brief_id
+                        campaign_result['briefName'] = brief_fields['Name']
+
+                        # Create BriefPlanSteps for each email in the series
+                        for step_idx, em in enumerate(emails):
+                            c = em.get('copy', {})
+                            step_content = c.get('subject', f'Email {step_idx + 1}')
+                            wait_days = series.get('wait_days', 1)
+
+                            step_body = {
+                                'BriefId': brief_id,
+                                'StepNumber': step_idx + 1,
+                                'StepType': 'Send',
+                                'Channel': 'Email',
+                                'Content': step_content,
+                            }
+                            if step_idx > 0:
+                                step_body['WaitNumber'] = wait_days
+                                step_body['WaitUnit'] = 'Days'
 
                             try:
-                                tmpl_resp = sf_api('GET',
-                                    '/services/data/v66.0/query/?q=' +
-                                    quote("SELECT Id FROM DICE_CBB_CampaignTemplateModule__c WHERE Name = 'Freeform' LIMIT 1"),
-                                    token, instance)
-                                if tmpl_resp.ok:
-                                    tmpl_records = tmpl_resp.json().get('records', [])
-                                    if tmpl_records:
-                                        template_id = tmpl_records[0]['Id']
-
-                                        junc_resp = sf_api('POST',
-                                            '/services/data/v66.0/sobjects/DICE_CBB_CampaignBriefSelectedModule__c',
-                                            token, instance, body={
-                                                'DICE_CBB_Campaign_Brief__c': brief_id,
-                                                'DICE_CBB_Campaign_Template_Module__c': template_id,
-                                                'DICE_CBB_Order_Index__c': 0
-                                            })
-
-                                        if junc_resp.status_code in (200, 201):
-                                            selected_module_id = junc_resp.json().get('id', '')
-
-                                            primary_color = colors[0]['hex'] if colors else '#0176d3'
-                                            email_list_html = ''.join(
-                                                f"<li style='margin-bottom:8px'><strong>Email {i+1}:</strong> {s}</li>"
-                                                for i, s in enumerate(subject_lines)
-                                            )
-                                            brief_html = (
-                                                f"<div style='max-width:600px;margin:0 auto;font-family:Arial,sans-serif;padding:30px'>"
-                                                f"<h1 style='color:{primary_color};margin-bottom:10px'>{brand_name}</h1>"
-                                                f"<h2 style='color:#333;margin-bottom:20px'>{series['name']}</h2>"
-                                                f"<p style='color:#555;line-height:1.6;margin-bottom:20px'>{identity or series['description']}</p>"
-                                                f"<h3 style='color:{primary_color};margin-bottom:10px'>Email Series ({len(subject_lines)} emails)</h3>"
-                                                f"<ul style='color:#333;line-height:1.8;padding-left:20px'>{email_list_html}</ul>"
-                                                f"<hr style='border:1px solid #eee;margin:20px 0'>"
-                                                f"<p style='color:#888;font-size:13px'>"
-                                                f"<strong>Tone:</strong> {tone_label} | "
-                                                f"<strong>Channel:</strong> Email | "
-                                                f"<strong>Industry:</strong> {industry or 'General'}</p>"
-                                                f"</div>"
-                                            )
-
-                                            ver_resp = sf_api('POST',
-                                                '/services/data/v66.0/sobjects/DICE_CBB_BriefModuleVersion__c',
-                                                token, instance, body={
-                                                    'DICE_CBB_Selected_Module__c': selected_module_id,
-                                                    'DICE_CBB_HTML__c': brief_html,
-                                                    'DICE_CBB_Version_Number__c': 1,
-                                                    'DICE_CBB_Is_Active__c': True,
-                                                    'DICE_CBB_Created_Date__c': today_str,
-                                                    'DICE_CBB_Created_By__c': user_id or None
-                                                })
-
-                                            if ver_resp.status_code in (200, 201):
-                                                campaign_result['briefModuleCreated'] = True
-                                            else:
-                                                errors.append(f"Brief module version: {ver_resp.status_code}")
-                            except Exception as me:
-                                errors.append(f"Brief module: {str(me)[:100]}")
-                        else:
-                            errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
+                                sf_api('POST', '/services/data/v66.0/sobjects/BriefPlanStep',
+                                       token, instance, body=step_body)
+                            except Exception:
+                                pass  # Non-critical — brief itself was created
+                    else:
+                        errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
                 except Exception as be:
                     errors.append(f"Campaign Brief: {str(be)[:150]}")
             else:
@@ -2867,7 +2979,8 @@ def deploy_all():
             'channelTypeId': email_config.get('channelTypeId', ''),
             'createFlow': email_config.get('createFlow', True),
             'createCampaign': email_config.get('createCampaign', True),
-            'headerColor': email_config.get('headerColor', None)
+            'headerColor': email_config.get('headerColor', None),
+            'brandContentId': brand_result.get('brandId', '')
         }
 
         series_result = _deploy_email_series_internal(token, instance, series_data)
