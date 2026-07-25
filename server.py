@@ -16,6 +16,7 @@ import zipfile
 import base64
 import colorsys
 import threading
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from collections import Counter
 from urllib.parse import urljoin, urlparse, quote
@@ -2593,7 +2594,6 @@ def deploy_email_series():
 
                 if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
                     # Extract deploy ID from response
-                    import xml.etree.ElementTree as ET
                     root = ET.fromstring(deploy_resp.text)
                     ns = {'met': 'http://soap.sforce.com/2006/04/metadata',
                           'soap': 'http://schemas.xmlsoap.org/soap/envelope/'}
@@ -2632,14 +2632,31 @@ def deploy_email_series():
         today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
-            # 4a: Create Campaign record
-            camp_resp = sf_api('POST', '/services/data/v66.0/sobjects/Campaign', token, instance, body={
+            # 4a: Get Business Unit ID for MCA Campaign
+            bu_id = ''
+            try:
+                bu_resp = sf_api('GET',
+                    '/services/data/v66.0/query/?q=' + quote("SELECT Id FROM BusinessUnit LIMIT 1"),
+                    token, instance)
+                if bu_resp.ok:
+                    bu_records = bu_resp.json().get('records', [])
+                    if bu_records:
+                        bu_id = bu_records[0]['Id']
+            except Exception:
+                pass
+
+            # 4a: Create Campaign record with Business Unit
+            camp_body = {
                 'Name': campaign_name,
                 'Type': 'Email',
                 'Status': 'Planned',
                 'IsActive': True,
                 'Description': f"{brand_name} - {series['description']}"
-            })
+            }
+            if bu_id:
+                camp_body['BusinessUnitId'] = bu_id
+
+            camp_resp = sf_api('POST', '/services/data/v66.0/sobjects/Campaign', token, instance, body=camp_body)
             if camp_resp.status_code in (200, 201):
                 campaign_id = camp_resp.json().get('id', '')
 
