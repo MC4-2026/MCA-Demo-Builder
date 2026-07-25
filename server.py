@@ -2477,7 +2477,7 @@ def _deploy_email_series_internal(token, instance, data):
             return rehosted_images.get(original_url, original_url)
         try:
             # Download the image
-            img_resp = requests.get(original_url, timeout=10, headers={
+            img_resp = requests.get(original_url, timeout=5, headers={
                 'User-Agent': 'Mozilla/5.0 (compatible; BrandBuilder/1.0)'
             })
             if img_resp.status_code != 200:
@@ -2692,10 +2692,10 @@ def _deploy_email_series_internal(token, instance, data):
                     deploy_id_el = root.find('.//met:id', ns)
                     deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
 
-                    # Poll checkDeployStatus until done (max 30 attempts × 2s = 60s)
+                    # Poll checkDeployStatus until done (max 8 attempts × 2s = 16s)
                     deploy_status = 'InProgress'
                     deploy_error_msg = ''
-                    for _poll in range(30):
+                    for _poll in range(8):
                         time.sleep(2)
                         check_soap = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
