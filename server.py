@@ -562,7 +562,24 @@ def extract_images(soup, base_url):
         if url.lower().endswith('.svg') and img_type != 'logo':
             return
         seen.add(url)
-        images.append({'url': url, 'type': img_type, 'alt': alt or img_type.title(), 'selected': True})
+        # Derive a readable display label — prefer alt text, fall back to URL filename
+        display_label = alt.strip() if alt else ''
+        generic_alts = ('', 'image', 'hero image', 'background image', 'hero', 'logo')
+        if not display_label or display_label.lower() in generic_alts:
+            try:
+                path_part = urlparse(url).path
+                fname = path_part.split('/')[-1].rsplit('.', 1)[0] if '/' in path_part else ''
+                if fname and len(fname) > 2:
+                    cleaned = re.sub(r'[-_]+', ' ', fname).strip().title()
+                    # Remove common noise like dimensions (e.g. "1200x600")
+                    cleaned = re.sub(r'\b\d{3,4}x\d{3,4}\b', '', cleaned).strip()
+                    if cleaned and len(cleaned) > 2:
+                        display_label = cleaned[:50]
+            except Exception:
+                pass
+        if not display_label or display_label.lower() in generic_alts:
+            display_label = f'{img_type.title()} {len(images) + 1}'
+        images.append({'url': url, 'type': img_type, 'alt': alt or img_type.title(), 'label': display_label, 'selected': True})
 
     # Logo candidates
     logo_selectors = [
@@ -1922,10 +1939,10 @@ def generate_series_copy(series_key, config):
     return results
 
 
-def render_email_html(copy_data, config, logo_url='', hero_url=''):
+def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=None):
     """Render a single email to full HTML, given copy fields + brand config + images."""
     colors = config.get('colors', [])
-    primary = colors[0]['hex'] if len(colors) > 0 else '#0176d3'
+    primary = header_color or (colors[0]['hex'] if len(colors) > 0 else '#0176d3')
     secondary = colors[1]['hex'] if len(colors) > 1 else '#032d60'
     brand_name = config.get('brandName', 'Brand')
 
@@ -2044,8 +2061,9 @@ def get_email_preview():
     config = data.get('config', {})
     logo_url = data.get('logoUrl', '')
     hero_url = data.get('heroUrl', '')
+    header_color = data.get('headerColor', None)
 
-    html = render_email_html(copy_data, config, logo_url, hero_url)
+    html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
     return jsonify({'html': html})
 
 
@@ -2392,6 +2410,7 @@ def deploy_email_series():
     subscription_id = data.get('subscriptionId', '')
     channel_type_id = data.get('channelTypeId', '')
     create_flow = data.get('createFlow', True)
+    header_color = data.get('headerColor', None)
 
     if series_key not in EMAIL_SERIES:
         return jsonify({'error': f'Invalid series: {series_key}'}), 400
@@ -2412,7 +2431,7 @@ def deploy_email_series():
         hero_url = email_data.get('heroUrl', '')
 
         # Render the email HTML
-        email_html = render_email_html(copy_data, config, logo_url, hero_url)
+        email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
         # Build CMS content JSON
         content_json = build_cms_email_content_json(

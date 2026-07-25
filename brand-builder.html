@@ -276,14 +276,15 @@
 
     <!-- Action -->
     <div class="flex items-center gap-4 pt-2">
-      <button id="btnDeployBrand" onclick="startDeploy()"
+      <button onclick="_emailCameFrom='step-preview';showStep('step-emails');initEmailSeriesUI()"
+        class="px-8 py-3 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        Build Email Series
+      </button>
+      <button onclick="startUnifiedDeploy()"
         class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         Deploy to Salesforce
-      </button>
-      <button onclick="_emailCameFrom='step-preview';showStep('step-emails');initEmailSeriesUI()" class="px-6 py-3 bg-accent text-white font-medium rounded-lg hover:bg-accent/90 transition cursor-pointer flex items-center gap-2">
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-        Email Series
       </button>
       <button onclick="exportJSON()" class="px-6 py-3 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
         Export Config as JSON
@@ -497,6 +498,18 @@
           <div id="emailLogoPreview" class="w-16 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden">
             <span class="text-xs text-muted">No logo</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Header Color Selection -->
+      <div class="mb-6 p-4 bg-surface rounded-lg border border-gray-200">
+        <label class="block text-sm font-semibold text-secondary mb-2">Email Header Color</label>
+        <p class="text-xs text-muted mb-2">Pick a brand color for the email header background.</p>
+        <div class="flex items-center gap-4">
+          <select id="emailHeaderColor" onchange="onHeaderColorChange()" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">Loading colors...</option>
+          </select>
+          <div id="headerColorPreview" class="w-10 h-10 rounded border border-gray-200" style="background-color:#0176d3;"></div>
         </div>
       </div>
 
@@ -1027,7 +1040,7 @@ function renderImages(images) {
         </div>
         <div class="p-2">
           <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full ${img.type === 'logo' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'}">${img.type}</span>
-          <p class="text-xs text-muted mt-1 truncate">${img.alt}</p>
+          <p class="text-xs text-muted mt-1 truncate">${img.label || img.alt}</p>
         </div>
       </label>
     `;
@@ -1065,7 +1078,8 @@ function gatherFinalConfig() {
     images: analysisResult.images.filter(i => i.selected).map(i => ({
       url: i.url,
       type: i.type,
-      alt: i.alt
+      alt: i.alt,
+      label: i.label || i.alt
     })),
     sourceUrl: analysisResult.sourceUrl || document.getElementById('websiteUrl').value
   };
@@ -1527,6 +1541,7 @@ async function scanSpecificPage() {
 // ============================================================
 let emailSeriesState = {
   selectedLogo: null,
+  headerColor: null,
   series: {
     nurture: { enabled: true, emails: [] },
     welcome: { enabled: true, emails: [] }
@@ -1552,7 +1567,7 @@ function initEmailSeriesUI() {
     if (!seen.has(img.url)) {
       const opt = document.createElement('option');
       opt.value = img.url;
-      opt.textContent = '⭐ ' + (img.alt || img.label || 'Logo');
+      opt.textContent = '⭐ ' + (img.label || img.alt || 'Logo');
       logoSel.appendChild(opt);
       seen.add(img.url);
     }
@@ -1561,7 +1576,7 @@ function initEmailSeriesUI() {
     if (!seen.has(img.url)) {
       const opt = document.createElement('option');
       opt.value = img.url;
-      opt.textContent = img.alt || img.label || img.type || 'Image';
+      opt.textContent = img.label || img.alt || img.type || 'Image';
       logoSel.appendChild(opt);
       seen.add(img.url);
     }
@@ -1573,6 +1588,32 @@ function initEmailSeriesUI() {
     emailSeriesState.selectedLogo = logos[0].url;
     onEmailLogoChange();
   }
+
+  // Populate header color dropdown from brand colors
+  const hcSel = document.getElementById('emailHeaderColor');
+  const brandColors = analysisResult.colors || [];
+  hcSel.innerHTML = '';
+  brandColors.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = c.hex;
+    opt.textContent = `${c.label || 'Color ' + (i + 1)} — ${c.hex}`;
+    hcSel.appendChild(opt);
+  });
+  if (brandColors.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '#0176d3';
+    opt.textContent = 'Default Blue — #0176d3';
+    hcSel.appendChild(opt);
+  }
+  // Default to first color
+  emailSeriesState.headerColor = hcSel.value;
+  document.getElementById('headerColorPreview').style.backgroundColor = hcSel.value;
+}
+
+function onHeaderColorChange() {
+  const hex = document.getElementById('emailHeaderColor').value;
+  emailSeriesState.headerColor = hex;
+  document.getElementById('headerColorPreview').style.backgroundColor = hex;
 }
 
 function onEmailLogoChange() {
@@ -1695,7 +1736,7 @@ function renderSeriesCards() {
       // Hero image selector options
       let heroOptions = '<option value="">No hero image</option>';
       allImages.forEach((img, imgIdx) => {
-        const label = img.alt || img.label || img.type || `Image ${imgIdx + 1}`;
+        const label = img.label || img.alt || `Image ${imgIdx + 1}`;
         heroOptions += `<option value="${img.url}">${label}</option>`;
       });
 
@@ -1783,7 +1824,7 @@ async function previewEmail(seriesKey, emailIdx) {
     const resp = await fetch(`${API_BASE}/api/email-preview`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ copy: email, config, logoUrl, heroUrl })
+      body: JSON.stringify({ copy: email, config, logoUrl, heroUrl, headerColor: emailSeriesState.headerColor })
     });
     if (!resp.ok) throw new Error('Failed to generate preview');
     const data = await resp.json();
@@ -1964,7 +2005,8 @@ async function executeEmailDeploy() {
           senderId,
           subscriptionId,
           channelTypeId,
-          createFlow
+          createFlow,
+          headerColor: emailSeriesState.headerColor
         })
       });
 
