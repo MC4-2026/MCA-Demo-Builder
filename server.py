@@ -2197,7 +2197,7 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         <label>Wait {wait_days} Day{"s" if wait_days != 1 else ""}</label>
         <locationX>176</locationX>
         <locationY>{wait_y}</locationY>
-        <elementSubtype>WaitForAmountOfTime</elementSubtype>
+        <elementSubtype>WaitDuration</elementSubtype>
         <connector>
             <targetReference>{next_action}</targetReference>
         </connector>
@@ -2215,7 +2215,7 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
 
     flow_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">{action_calls_xml}{waits_xml}
-    <apiVersion>66.0</apiVersion>
+    <apiVersion>67.0</apiVersion>
     <areMetricsLoggedToDataCloud>true</areMetricsLoggedToDataCloud>
     <dataSpace>default</dataSpace>
     <environments>Default</environments>
@@ -2557,7 +2557,7 @@ def _deploy_email_series_internal(token, instance, data):
         <members>''' + flow_api_name + '''</members>
         <name>Flow</name>
     </types>
-    <version>66.0</version>
+    <version>67.0</version>
 </Package>'''
                     zf.writestr('package.xml', package_xml)
                     zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
@@ -2582,7 +2582,7 @@ def _deploy_email_series_internal(token, instance, data):
 </soap:Envelope>'''
 
                 deploy_resp = requests.post(
-                    f"{instance}/services/Soap/m/66.0",
+                    f"{instance}/services/Soap/m/67.0",
                     headers={
                         'Content-Type': 'text/xml; charset=utf-8',
                         'SOAPAction': 'deploy'
@@ -2617,7 +2617,7 @@ def _deploy_email_series_internal(token, instance, data):
   </soap:Body>
 </soap:Envelope>'''
                         check_resp = requests.post(
-                            f"{instance}/services/Soap/m/66.0",
+                            f"{instance}/services/Soap/m/67.0",
                             headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'checkDeployStatus'},
                             data=check_soap.encode('utf-8'),
                             timeout=15
