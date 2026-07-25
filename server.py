@@ -2095,8 +2095,9 @@ def get_email_preview():
 # ─── Flow Metadata XML Generation ───
 
 def generate_flow_xml(series_key, email_content_keys, config, workspace_name='Default_Content_Workspace',
-                      segment_id='', sender_id='', subscription_id='', channel_type_id=''):
-    """Generate a segment-triggered MCA flow XML with sendEmailMessage actions and wait elements."""
+                      segment_id='', sender_id='', subscription_id='', channel_type_id='',
+                      data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm'):
+    """Generate a segment-triggered MCA flow XML with sendEmailMessage actions (no waits - add via Flow Builder)."""
     series = EMAIL_SERIES.get(series_key)
     if not series:
         return None
@@ -2220,8 +2221,8 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         <connector>
             <targetReference>Send_Email_1</targetReference>
         </connector>
-        <dataGraph>Marketing_Content_Personalizat</dataGraph>
-        <object>UnifiedssotIndividualSub1__dlm</object>
+        <dataGraph>{data_graph}</dataGraph>
+        <object>{dmo_object}</object>
         <publishSegment>true</publishSegment>
         <schedule>
             <dayOfMonthToRun>0</dayOfMonthToRun>
@@ -2519,9 +2520,41 @@ def _deploy_email_series_internal(token, instance, data):
     flow_result = None
     if create_flow and len(created_emails) > 0:
         email_content_keys = [e['contentKey'] for e in created_emails]
+
+        # Discover org-specific data graph and DMO names for the flow
+        discovered_data_graph = 'Marketing_Data_Graph'
+        discovered_dmo = 'UnifiedssotIndividualInd1__dlm'
+        try:
+            # Query data graph via Tooling API
+            dg_resp = requests.get(
+                f"{instance}/services/data/v67.0/tooling/query/",
+                params={'q': "SELECT DeveloperName FROM DataGraphDefinition WHERE DeveloperName LIKE '%Marketing%' LIMIT 1"},
+                headers={'Authorization': f'Bearer {token}'}
+            )
+            if dg_resp.status_code == 200:
+                dg_records = dg_resp.json().get('records', [])
+                if dg_records:
+                    discovered_data_graph = dg_records[0]['DeveloperName']
+
+            # Query DMO - look for unified individual entities
+            dmo_resp = requests.get(
+                f"{instance}/services/data/v67.0/sobjects",
+                headers={'Authorization': f'Bearer {token}'}
+            )
+            if dmo_resp.status_code == 200:
+                sobjects = dmo_resp.json().get('sobjects', [])
+                for obj in sobjects:
+                    name = obj.get('name', '')
+                    if name.startswith('Unifiedssot') and 'Individual' in name and name.endswith('__dlm'):
+                        discovered_dmo = name
+                        break
+        except Exception as disc_err:
+            errors.append(f"Org discovery warning (using defaults): {str(disc_err)[:100]}")
+
         flow_data = generate_flow_xml(
             series_key, email_content_keys, config,
-            workspace_name, segment_id, sender_id, subscription_id, channel_type_id
+            workspace_name, segment_id, sender_id, subscription_id, channel_type_id,
+            data_graph=discovered_data_graph, dmo_object=discovered_dmo
         )
 
         if flow_data:
