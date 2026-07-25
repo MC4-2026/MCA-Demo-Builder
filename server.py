@@ -1951,8 +1951,10 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
     secondary = colors[1]['hex'] if len(colors) > 1 else '#032d60'
     brand_name = config.get('brandName', 'Brand')
 
-    primary_rgb = hex_to_rgb(primary)
-    btn_text_color = '#ffffff' if primary_rgb and brightness(*primary_rgb) < 128 else '#032d60'
+    # Button uses the brand's button color (not header color)
+    btn_color = config.get('buttonStyle', {}).get('color', '') or (colors[0]['hex'] if len(colors) > 0 else '#0176d3')
+    btn_rgb = hex_to_rgb(btn_color)
+    btn_text_color = '#ffffff' if btn_rgb and brightness(*btn_rgb) < 128 else '#032d60'
 
     font_family = config.get('typography', {}).get('bodyFont', 'Arial')
     btn_radius = config.get('buttonStyle', {}).get('borderRadius', 4)
@@ -2006,8 +2008,8 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
       </p>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
       <tr>
-        <td align="center" style="background-color:{primary};border-radius:{btn_radius}px;mso-padding-alt:14px 32px;">
-          <a href="{cta_url}" target="_blank" style="display:inline-block;padding:14px 40px;font-family:{font_family},Arial,sans-serif;font-size:16px;font-weight:700;color:{btn_text_color};text-decoration:none;border-radius:{btn_radius}px;background-color:{primary};text-align:center;min-width:180px;">
+        <td align="center" style="background-color:{btn_color};border-radius:{btn_radius}px;mso-padding-alt:14px 40px;">
+          <a href="{cta_url}" target="_blank" style="display:inline-block;padding:14px 40px;font-family:{font_family},Arial,sans-serif;font-size:16px;font-weight:700;color:{btn_text_color};text-decoration:none;border-radius:{btn_radius}px;background-color:{btn_color};text-align:center;min-width:200px;">
             {cta_text}
           </a>
         </td>
