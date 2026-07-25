@@ -2367,50 +2367,56 @@ def get_consent_config():
     return jsonify(result)
 
 
-def build_cms_email_content_json(email_html, subject, preheader):
-    """Build the CMS email content.json structure for sfdc_cms__email."""
+def build_cms_email_content_json(email_html, subject, preheader, title=''):
+    """Build the CMS email contentBody structure for sfdc_cms__email.
+
+    Matches the real MCA CMS email schema with top-level subjectLine, preheader,
+    sfdc_cms:title, messagePurpose, and the block tree using definition/children.
+    """
+    block_id = str(uuid.uuid4())
+    section_id = str(uuid.uuid4())
+    column_id = str(uuid.uuid4())
+    html_id = str(uuid.uuid4())
+
     return {
-        "type": "sfdc_cms__email",
-        "content": {
-            "sfdc_cms:block": {
-                "value": {
-                    "lightning:dataProviders": [
+        "subjectLine": subject,
+        "preheader": preheader or "",
+        "sfdc_cms:title": title or subject,
+        "messagePurpose": "promotional",
+        "sfdc_cms:block": {
+            "definition": "sfdc_cms/rootContentBlock",
+            "id": block_id,
+            "type": "block",
+            "children": [
+                {
+                    "definition": "lightning/section",
+                    "id": section_id,
+                    "type": "block",
+                    "attributes": {
+                        "stackOnMobile": True
+                    },
+                    "children": [
                         {
-                            "name": "Marketing_Content_Personalizat",
-                            "type": "dataGraph"
-                        }
-                    ],
-                    "sfdc_cms:block": {
-                        "type": "sfdc_cms/rootContentBlock",
-                        "value": {
-                            "subject": subject,
-                            "preheader": preheader,
-                            "sfdc_cms:block": [
+                            "definition": "lightning/column",
+                            "id": column_id,
+                            "type": "block",
+                            "attributes": {
+                                "columnWidth": 12.0
+                            },
+                            "children": [
                                 {
-                                    "type": "lightning/section",
-                                    "value": {
-                                        "sfdc_cms:block": [
-                                            {
-                                                "type": "lightning/column",
-                                                "value": {
-                                                    "sfdc_cms:block": [
-                                                        {
-                                                            "type": "lightning/html",
-                                                            "value": {
-                                                                "rawHtml": email_html
-                                                            }
-                                                        }
-                                                    ]
-                                                }
-                                            }
-                                        ]
+                                    "definition": "lightning/html",
+                                    "id": html_id,
+                                    "type": "block",
+                                    "attributes": {
+                                        "rawHtml": email_html
                                     }
                                 }
                             ]
                         }
-                    }
+                    ]
                 }
-            }
+            ]
         }
     }
 
@@ -2458,13 +2464,13 @@ def deploy_email_series():
         # Render the email HTML
         email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
-        # Build CMS content JSON
-        content_json = build_cms_email_content_json(
-            email_html, copy_data.get('subject', ''), copy_data.get('preheader', '')
-        )
-
         email_name = f"{brand_name}_{series['name'].replace(' ', '_')}_Email_{i + 1}"
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
+
+        # Build CMS content JSON (contentBody)
+        content_json = build_cms_email_content_json(
+            email_html, copy_data.get('subject', ''), copy_data.get('preheader', ''), title=email_title
+        )
 
         try:
             # Create CMS content via connect API (multipart with contentBody)
