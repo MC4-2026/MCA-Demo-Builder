@@ -1001,6 +1001,11 @@ def index():
     return send_from_directory('.', 'brand-builder.html')
 
 
+@app.route('/download-email-series.html')
+def download_page():
+    return send_from_directory('.', 'download-email-series.html')
+
+
 # ─── OAuth & Salesforce Deploy ───
 
 FONT_MAP = {
