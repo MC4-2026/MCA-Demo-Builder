@@ -2467,53 +2467,32 @@ def deploy_email_series():
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
 
         try:
-            # Create CMS content via connect API
-            import io
-            boundary = f"----FormBoundary{uuid.uuid4().hex[:16]}"
-
-            # Build multipart body
+            # Create CMS content via connect API (multipart with contentBody)
             input_param = json.dumps({
                 "contentSpaceOrFolderId": workspace_id,
                 "contentType": "sfdc_cms__email",
-                "title": email_title
+                "title": email_title,
+                "contentBody": content_json
             })
-            content_data = json.dumps(content_json)
 
-            body_parts = []
-            body_parts.append(f'--{boundary}')
-            body_parts.append('Content-Disposition: form-data; name="ManagedContentInputParam"')
-            body_parts.append('Content-Type: application/json')
-            body_parts.append('')
-            body_parts.append(input_param)
-            body_parts.append(f'--{boundary}')
-            body_parts.append('Content-Disposition: form-data; name="contentData"; filename="content.json"')
-            body_parts.append('Content-Type: application/json')
-            body_parts.append('')
-            body_parts.append(content_data)
-            body_parts.append(f'--{boundary}--')
-
-            multipart_body = '\r\n'.join(body_parts)
-
-            headers = {
-                'Authorization': f'Bearer {token}',
-                'Content-Type': f'multipart/form-data; boundary={boundary}'
+            files = {
+                'ManagedContentInputParam': (None, input_param, 'application/json')
             }
 
             resp = requests.post(
                 f"{instance}/services/data/v66.0/connect/cms/contents",
-                headers=headers,
-                data=multipart_body.encode('utf-8'),
+                headers={'Authorization': f'Bearer {token}'},
+                files=files,
                 timeout=30
             )
 
             # Auto-refresh on 401 and retry once
             if resp.status_code == 401 and try_refresh_token():
                 token = session.get('sf_access_token')
-                headers['Authorization'] = f'Bearer {token}'
                 resp = requests.post(
                     f"{instance}/services/data/v66.0/connect/cms/contents",
-                    headers=headers,
-                    data=multipart_body.encode('utf-8'),
+                    headers={'Authorization': f'Bearer {token}'},
+                    files=files,
                     timeout=30
                 )
 
