@@ -1917,7 +1917,7 @@ async function startEmailDeploy() {
     const wsResp = await fetch(`${API_BASE}/api/sf/workspaces`);
     const wsData = await wsResp.json();
     wsSel.innerHTML = '<option value="">Select a workspace...</option>';
-    (wsData.workspaces || []).forEach(ws => {
+    (wsData.allWorkspaces || []).forEach(ws => {
       const opt = document.createElement('option');
       opt.value = ws.id;
       opt.textContent = ws.name;
