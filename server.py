@@ -2466,105 +2466,11 @@ def _deploy_email_series_internal(token, instance, data):
     created_emails = []
     errors = []
 
-    # Step 0: Re-host images to Salesforce so email img src URLs are reliable
-    # Upload each unique image URL as a ContentVersion and get the public download URL
-    rehosted_images = {}  # original_url -> salesforce_public_url
-
-    def _rehost_image(original_url, label='image'):
-        """Download image from URL and upload to Salesforce as ContentVersion.
-        Returns the public Salesforce download URL, or the original URL on failure."""
-        if not original_url or original_url in rehosted_images:
-            return rehosted_images.get(original_url, original_url)
-        try:
-            # Download the image
-            img_resp = requests.get(original_url, timeout=5, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; BrandBuilder/1.0)'
-            })
-            if img_resp.status_code != 200:
-                return original_url
-
-            img_data = img_resp.content
-            content_type = img_resp.headers.get('Content-Type', 'image/png')
-
-            # Determine file extension
-            ext_map = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
-                       'image/svg+xml': '.svg', 'image/webp': '.webp', 'image/x-icon': '.ico'}
-            ext = ext_map.get(content_type.split(';')[0].strip(), '.png')
-            file_name = f"{brand_name}_{label}{ext}".replace(' ', '_')
-
-            # Upload as ContentVersion
-            img_b64 = base64.b64encode(img_data).decode('utf-8')
-            cv_body = {
-                'Title': f"{brand_name} {label}",
-                'PathOnClient': file_name,
-                'VersionData': img_b64,
-                'FirstPublishLocationId': None  # Personal library
-            }
-
-            cv_resp = sf_api('POST', '/services/data/v66.0/sobjects/ContentVersion',
-                             token, instance, body=cv_body)
-            if cv_resp.status_code in (200, 201):
-                cv_id = cv_resp.json().get('id', '')
-                # Query the ContentDistribution or use the standard download URL
-                # Get ContentDocumentId first
-                cv_detail = sf_api('GET', f'/services/data/v66.0/sobjects/ContentVersion/{cv_id}',
-                                   token, instance)
-                if cv_detail.ok:
-                    doc_id = cv_detail.json().get('ContentDocumentId', '')
-                    if doc_id:
-                        # Create ContentDistribution for public URL
-                        dist_body = {
-                            'Name': f"{brand_name} {label}",
-                            'ContentVersionId': cv_id,
-                            'PreferencesAllowViewInBrowser': True,
-                            'PreferencesNotifyOnVisit': False,
-                            'PreferencesAllowOriginalDownload': True
-                        }
-                        dist_resp = sf_api('POST', '/services/data/v66.0/sobjects/ContentDistribution',
-                                           token, instance, body=dist_body)
-                        if dist_resp.status_code in (200, 201):
-                            dist_id = dist_resp.json().get('id', '')
-                            # Query the DistributionPublicUrl
-                            dist_detail = sf_api('GET',
-                                f'/services/data/v66.0/sobjects/ContentDistribution/{dist_id}?fields=DistributionPublicUrl,ContentDownloadUrl',
-                                token, instance)
-                            if dist_detail.ok:
-                                public_url = dist_detail.json().get('ContentDownloadUrl', '') or \
-                                             dist_detail.json().get('DistributionPublicUrl', '')
-                                if public_url:
-                                    rehosted_images[original_url] = public_url
-                                    return public_url
-
-            # Fallback: return original URL
-            return original_url
-        except Exception as e:
-            errors.append(f"Image rehost ({label}): {str(e)[:100]}")
-            return original_url
-
-    # Collect unique image URLs from all emails and re-host them
-    all_logo_urls = set()
-    all_hero_urls = set()
-    for email_data in emails:
-        lu = email_data.get('logoUrl', '')
-        hu = email_data.get('heroUrl', '')
-        if lu:
-            all_logo_urls.add(lu)
-        if hu:
-            all_hero_urls.add(hu)
-
-    for lu in all_logo_urls:
-        _rehost_image(lu, 'logo')
-    for hu in all_hero_urls:
-        _rehost_image(hu, 'hero')
-
     # Step 1: Upload each email to CMS
     for i, email_data in enumerate(emails):
         copy_data = email_data.get('copy', {})
-        orig_logo = email_data.get('logoUrl', '')
-        orig_hero = email_data.get('heroUrl', '')
-        # Use re-hosted URLs (falls back to original if re-host failed)
-        logo_url = rehosted_images.get(orig_logo, orig_logo)
-        hero_url = rehosted_images.get(orig_hero, orig_hero)
+        logo_url = email_data.get('logoUrl', '')
+        hero_url = email_data.get('heroUrl', '')
 
         email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
@@ -2692,10 +2598,10 @@ def _deploy_email_series_internal(token, instance, data):
                     deploy_id_el = root.find('.//met:id', ns)
                     deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
 
-                    # Poll checkDeployStatus until done (max 8 attempts × 2s = 16s)
+                    # Poll checkDeployStatus until done (max 4 attempts × 2s = 8s)
                     deploy_status = 'InProgress'
                     deploy_error_msg = ''
-                    for _poll in range(8):
+                    for _poll in range(4):
                         time.sleep(2)
                         check_soap = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
