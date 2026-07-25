@@ -118,28 +118,39 @@
       </div>
     </div>
 
-    <!-- Tone of Voice -->
+    <!-- Industry & Tone of Voice -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h3 class="text-lg font-semibold text-secondary mb-4">Tone of Voice</h3>
-      <div>
-        <label class="block text-sm font-medium text-secondary mb-1">Detected Tone</label>
-        <select id="prevToneLabel"
-          class="w-full md:w-1/2 px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition">
-          <option value="Professional and authoritative">Professional and authoritative</option>
-          <option value="Friendly and approachable">Friendly and approachable</option>
-          <option value="Bold and innovative">Bold and innovative</option>
-          <option value="Warm and empathetic">Warm and empathetic</option>
-          <option value="Technical and precise">Technical and precise</option>
-          <option value="Playful and energetic">Playful and energetic</option>
-          <option value="Luxurious and refined">Luxurious and refined</option>
-          <option value="Casual and conversational">Casual and conversational</option>
-        </select>
+      <h3 class="text-lg font-semibold text-secondary mb-4">Industry & Tone of Voice</h3>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-secondary mb-1">Industry</label>
+          <select id="prevIndustry"
+            onchange="onIndustryChange()"
+            class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-secondary mb-1">Sub-Industry</label>
+          <select id="prevSubIndustry"
+            onchange="onSubIndustryChange()"
+            class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition">
+            <option value="">Select industry first</option>
+          </select>
+        </div>
       </div>
-      <div class="mt-4">
+      <div class="mt-3">
+        <label class="block text-sm font-medium text-secondary mb-1">Tone Label</label>
+        <input id="prevToneLabel" type="text" readonly
+          class="w-full px-4 py-2 rounded-lg border border-gray-200 bg-gray-50 text-muted outline-none">
+      </div>
+      <div class="mt-3">
         <label class="block text-sm font-medium text-secondary mb-1">Tone Description</label>
         <textarea id="prevToneDesc" rows="3"
           class="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition resize-none"></textarea>
       </div>
+      <input type="hidden" id="prevToneKey" value="">
+      <input type="hidden" id="prevCustomerTerm" value="customers">
     </div>
 
     <!-- Colors -->
@@ -269,6 +280,10 @@
         class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         Deploy to Salesforce
+      </button>
+      <button onclick="_emailCameFrom='step-preview';showStep('step-emails');initEmailSeriesUI()" class="px-6 py-3 bg-accent text-white font-medium rounded-lg hover:bg-accent/90 transition cursor-pointer flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        Email Series
       </button>
       <button onclick="exportJSON()" class="px-6 py-3 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
         Export Config as JSON
@@ -441,15 +456,211 @@
 
       <div id="successWarnings" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm"></div>
 
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-4 flex-wrap">
         <a id="successCmsLink" href="#" target="_blank"
           class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer inline-flex items-center gap-2 no-underline">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
           Open in Salesforce CMS
         </a>
+        <button onclick="_emailCameFrom='step-confirm';showStep('step-emails');initEmailSeriesUI()" class="px-6 py-2.5 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition cursor-pointer inline-flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          Build Email Series
+        </button>
         <button onclick="goBack()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
           Analyze Another Website
         </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== STEP 6: Email Series Builder ========== -->
+  <section id="step-emails" class="hidden fade-in space-y-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+      <!-- Header -->
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        </div>
+        <div>
+          <h2 class="text-2xl font-bold text-secondary">Email Series Builder</h2>
+          <p class="text-muted text-sm">Generate branded email series using your brand's colors, tone, and images.</p>
+        </div>
+      </div>
+
+      <!-- Global Logo Selection -->
+      <div class="mb-6 p-4 bg-surface rounded-lg border border-gray-200">
+        <label class="block text-sm font-semibold text-secondary mb-2">Email Logo</label>
+        <div class="flex items-center gap-4">
+          <select id="emailLogoSelect" onchange="onEmailLogoChange()" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">No logo</option>
+          </select>
+          <div id="emailLogoPreview" class="w-16 h-10 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden">
+            <span class="text-xs text-muted">No logo</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Series Selection -->
+      <div class="mb-6">
+        <h3 class="text-sm font-semibold text-secondary mb-3">Select Series to Build</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <label id="seriesToggleNurture" class="flex items-start gap-3 p-4 bg-surface rounded-lg border-2 border-primary/30 hover:border-primary/50 transition cursor-pointer">
+            <input type="checkbox" id="seriesNurtureCheck" checked onchange="onSeriesToggle()" class="mt-1 accent-primary">
+            <div>
+              <span class="block font-semibold text-secondary">Nurture Series</span>
+              <span class="text-xs text-muted">3 emails · 5-day gap between sends</span>
+              <span class="block text-xs text-accent mt-1">Sell the value of your industry with clear CTAs</span>
+            </div>
+          </label>
+          <label id="seriesToggleWelcome" class="flex items-start gap-3 p-4 bg-surface rounded-lg border-2 border-primary/30 hover:border-primary/50 transition cursor-pointer">
+            <input type="checkbox" id="seriesWelcomeCheck" checked onchange="onSeriesToggle()" class="mt-1 accent-primary">
+            <div>
+              <span class="block font-semibold text-secondary">Welcome Series</span>
+              <span class="text-xs text-muted">3 emails · 1-day gap between sends</span>
+              <span class="block text-xs text-accent mt-1">Onboard new customers with a warm introduction</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Generate Copy Button -->
+      <button id="btnGenerateCopy" onclick="generateSeriesCopy()"
+        class="px-8 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Generate Email Copy
+      </button>
+
+      <!-- Progress -->
+      <div id="emailProgress" class="hidden mt-4">
+        <div class="flex items-center gap-3 mb-2">
+          <svg class="w-5 h-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <span id="emailStatusText" class="text-sm text-secondary font-medium">Generating email copy...</span>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="emailError" class="hidden mt-4 p-3 bg-error/5 border border-error/20 rounded-lg text-error text-sm"></div>
+
+      <!-- ─── Series Cards Container ─── -->
+      <div id="seriesCardsContainer" class="hidden mt-6 space-y-8"></div>
+
+      <!-- Bottom Actions -->
+      <div class="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
+        <button onclick="goBackFromEmails()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
+          &larr; Back
+        </button>
+        <button id="btnDeployEmails" onclick="startEmailDeploy()" class="hidden px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          Deploy to Salesforce
+        </button>
+      </div>
+    </div>
+
+    <!-- Email Preview Modal -->
+    <div id="emailPreviewModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-gray-200">
+          <h3 id="previewModalTitle" class="font-semibold text-secondary">Email Preview</h3>
+          <button onclick="closeEmailPreview()" class="p-1 hover:bg-gray-100 rounded cursor-pointer">
+            <svg class="w-5 h-5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="flex-1 overflow-auto p-0">
+          <iframe id="emailPreviewFrame" class="w-full border-0" style="min-height:600px;"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deploy Modal -->
+    <div id="emailDeployModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-5 border-b border-gray-200">
+          <h3 class="font-bold text-secondary text-lg">Deploy Email Series</h3>
+          <button onclick="closeDeployModal()" class="p-1 hover:bg-gray-100 rounded cursor-pointer">
+            <svg class="w-5 h-5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="p-5 space-y-4">
+          <!-- Workspace -->
+          <div>
+            <label class="block text-sm font-semibold text-secondary mb-1">CMS Workspace</label>
+            <select id="emailDeployWorkspace" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+
+          <!-- Sender -->
+          <div>
+            <label class="block text-sm font-semibold text-secondary mb-1">Sender Email</label>
+            <select id="emailDeploySender" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">None (configure in Flow Builder)</option>
+            </select>
+            <p class="text-xs text-muted mt-1">OrgWideEmailAddress used as the "From" address</p>
+          </div>
+
+          <!-- Subscription -->
+          <div>
+            <label class="block text-sm font-semibold text-secondary mb-1">Communication Subscription</label>
+            <select id="emailDeploySub" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">None (configure later)</option>
+            </select>
+          </div>
+
+          <!-- Channel Type -->
+          <div>
+            <label class="block text-sm font-semibold text-secondary mb-1">Channel Type</label>
+            <select id="emailDeployChan" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">None (configure later)</option>
+            </select>
+          </div>
+
+          <!-- Segment -->
+          <div>
+            <label class="block text-sm font-semibold text-secondary mb-1">Data Cloud Segment</label>
+            <select id="emailDeploySegment" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">None (assign in Flow Builder)</option>
+            </select>
+            <p class="text-xs text-muted mt-1">Published segment to trigger the flow</p>
+          </div>
+
+          <!-- Create Flow Toggle -->
+          <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
+            <input type="checkbox" id="emailDeployCreateFlow" checked class="accent-primary">
+            <div>
+              <span class="block text-sm font-medium text-secondary">Create Marketing Flow</span>
+              <span class="text-xs text-muted">Deploy a segment-triggered flow with wait elements between sends</span>
+            </div>
+          </label>
+
+          <!-- Deploy Progress -->
+          <div id="emailDeployProgress" class="hidden">
+            <div class="flex items-center gap-3">
+              <svg class="w-5 h-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              <span id="emailDeployStatus" class="text-sm text-secondary">Deploying...</span>
+            </div>
+          </div>
+
+          <!-- Deploy Result -->
+          <div id="emailDeployResult" class="hidden p-4 bg-surface rounded-lg border border-gray-200 text-sm"></div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-3 pt-2">
+            <button id="btnExecuteDeploy" onclick="executeEmailDeploy()"
+              class="flex-1 px-6 py-2.5 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition cursor-pointer flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              Deploy Now
+            </button>
+            <button onclick="closeDeployModal()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -464,15 +675,22 @@ let analysisResult = {
   brandName: '',
   description: '',
   identity: '',
-  toneLabel: 'Professional and authoritative',
+  toneKey: 'banking_retail',
+  toneLabel: 'Retail Banking',
+  toneIndustry: 'Banking',
   toneDescription: '',
+  customerTerm: 'customers',
   colors: [],
   headingFont: 'Arial',
   bodyFont: 'Arial',
   buttonColor: '#0176d3',
   buttonRadius: 4,
-  images: []
+  images: [],
+  sourceUrl: ''
 };
+
+// Industry data loaded from backend
+let industryData = {};
 
 // API base URL — same origin (served by Flask backend)
 const API_BASE = window.location.origin;
@@ -481,7 +699,7 @@ const API_BASE = window.location.origin;
 // NAVIGATION
 // ============================================================
 function showStep(id) {
-  ['step-input','step-loading','step-preview','step-confirm','step-deploy'].forEach(s => {
+  ['step-input','step-loading','step-preview','step-confirm','step-deploy','step-emails'].forEach(s => {
     const el = document.getElementById(s);
     if (el) el.classList.toggle('hidden', s !== id);
   });
@@ -571,14 +789,18 @@ async function startAnalysis() {
       brandName: data.brandName,
       description: data.description,
       identity: data.identity,
+      toneKey: data.toneKey || 'banking_retail',
       toneLabel: data.toneLabel,
+      toneIndustry: data.toneIndustry || '',
       toneDescription: data.toneDescription,
+      customerTerm: data.customerTerm || 'customers',
       colors: data.colors,
       headingFont: data.headingFont,
       bodyFont: data.bodyFont,
       buttonColor: data.buttonColor,
       buttonRadius: data.buttonRadius,
-      images: data.images
+      images: data.images,
+      sourceUrl: data.sourceUrl || ''
     };
 
     setProgress(100, 'Done!');
@@ -614,17 +836,106 @@ function getLuminance(hex) {
 // ============================================================
 // RENDER PREVIEW
 // ============================================================
+async function loadIndustries() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/industries`);
+    if (resp.ok) industryData = await resp.json();
+  } catch(e) { console.warn('Failed to load industries:', e); }
+}
+
+function populateIndustryDropdowns(selectedKey) {
+  const indSel = document.getElementById('prevIndustry');
+  const subSel = document.getElementById('prevSubIndustry');
+  indSel.innerHTML = '';
+
+  // Find which industry group the selected key belongs to
+  let selectedIndustry = '';
+  for (const [industry, subs] of Object.entries(industryData)) {
+    for (const sub of subs) {
+      if (sub.key === selectedKey) { selectedIndustry = industry; break; }
+    }
+    if (selectedIndustry) break;
+  }
+
+  // Populate industry dropdown
+  for (const industry of Object.keys(industryData)) {
+    const opt = document.createElement('option');
+    opt.value = industry;
+    opt.textContent = industry;
+    if (industry === selectedIndustry) opt.selected = true;
+    indSel.appendChild(opt);
+  }
+
+  // Populate sub-industry dropdown
+  populateSubIndustries(selectedIndustry || Object.keys(industryData)[0], selectedKey);
+}
+
+function populateSubIndustries(industry, selectedKey) {
+  const subSel = document.getElementById('prevSubIndustry');
+  subSel.innerHTML = '';
+  const subs = industryData[industry] || [];
+  for (const sub of subs) {
+    const opt = document.createElement('option');
+    opt.value = sub.key;
+    opt.textContent = sub.label;
+    if (sub.key === selectedKey) opt.selected = true;
+    subSel.appendChild(opt);
+  }
+  // If no match found, select first
+  if (selectedKey && !subs.find(s => s.key === selectedKey) && subs.length > 0) {
+    subSel.value = subs[0].key;
+  }
+}
+
+function onIndustryChange() {
+  const industry = document.getElementById('prevIndustry').value;
+  populateSubIndustries(industry, '');
+  onSubIndustryChange();
+}
+
+async function onSubIndustryChange() {
+  const key = document.getElementById('prevSubIndustry').value;
+  if (!key) return;
+
+  document.getElementById('prevToneKey').value = key;
+
+  // Call backend to regenerate identity with new industry
+  try {
+    const resp = await fetch(`${API_BASE}/api/regenerate-identity`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        brandName: document.getElementById('prevBrandName').value || analysisResult.brandName,
+        industryKey: key,
+        sourceUrl: analysisResult.sourceUrl || ''
+      })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById('prevToneLabel').value = data.toneLabel;
+      document.getElementById('prevToneDesc').value = data.toneDescription;
+      document.getElementById('prevIdentity').value = data.identity;
+      document.getElementById('prevCustomerTerm').value = data.customerTerm || 'customers';
+    }
+  } catch(e) { console.warn('Failed to regenerate identity:', e); }
+}
+
 function renderPreview() {
   const r = analysisResult;
   document.getElementById('prevBrandName').value = r.brandName;
   document.getElementById('prevDescription').value = r.description;
   document.getElementById('prevIdentity').value = r.identity;
+  document.getElementById('prevToneKey').value = r.toneKey || 'banking_retail';
   document.getElementById('prevToneLabel').value = r.toneLabel;
   document.getElementById('prevToneDesc').value = r.toneDescription;
+  document.getElementById('prevCustomerTerm').value = r.customerTerm || 'customers';
   document.getElementById('prevHeadingFont').value = r.headingFont;
   document.getElementById('prevBodyFont').value = r.bodyFont;
   document.getElementById('prevBtnColor').value = r.buttonColor;
   document.getElementById('prevBtnRadius').value = r.buttonRadius;
+
+  // Populate industry dropdowns
+  populateIndustryDropdowns(r.toneKey || 'banking_retail');
 
   // Font previews
   document.getElementById('headingFontPreview').style.fontFamily = r.headingFont;
@@ -737,8 +1048,10 @@ function gatherFinalConfig() {
     description: document.getElementById('prevDescription').value,
     identity: document.getElementById('prevIdentity').value,
     tone: {
+      key: document.getElementById('prevToneKey').value,
       label: document.getElementById('prevToneLabel').value,
-      description: document.getElementById('prevToneDesc').value
+      description: document.getElementById('prevToneDesc').value,
+      customerTerm: document.getElementById('prevCustomerTerm').value
     },
     colors: analysisResult.colors.map(c => ({ label: c.label, hex: c.hex })),
     typography: {
@@ -754,7 +1067,7 @@ function gatherFinalConfig() {
       type: i.type,
       alt: i.alt
     })),
-    sourceUrl: document.getElementById('websiteUrl').value
+    sourceUrl: analysisResult.sourceUrl || document.getElementById('websiteUrl').value
   };
 }
 
@@ -1209,6 +1522,509 @@ async function scanSpecificPage() {
   }
 }
 
+// ============================================================
+// EMAIL SERIES BUILDER
+// ============================================================
+let emailSeriesState = {
+  selectedLogo: null,
+  series: {
+    nurture: { enabled: true, emails: [] },
+    welcome: { enabled: true, emails: [] }
+  }
+};
+
+let _emailCameFrom = 'step-preview';
+function goBackFromEmails() {
+  showStep(_emailCameFrom);
+}
+
+function initEmailSeriesUI() {
+  // Populate logo dropdown from extracted images
+  const logoSel = document.getElementById('emailLogoSelect');
+  logoSel.innerHTML = '<option value="">No logo</option>';
+  const imgs = analysisResult.images || [];
+  const logos = imgs.filter(i => (i.type === 'logo' || i.label === 'Logo') && i.selected !== false);
+  const allImgs = imgs.filter(i => i.selected !== false);
+
+  // Add logos first, then all images as fallback
+  const seen = new Set();
+  logos.forEach(img => {
+    if (!seen.has(img.url)) {
+      const opt = document.createElement('option');
+      opt.value = img.url;
+      opt.textContent = '⭐ ' + (img.alt || img.label || 'Logo');
+      logoSel.appendChild(opt);
+      seen.add(img.url);
+    }
+  });
+  allImgs.forEach(img => {
+    if (!seen.has(img.url)) {
+      const opt = document.createElement('option');
+      opt.value = img.url;
+      opt.textContent = img.alt || img.label || img.type || 'Image';
+      logoSel.appendChild(opt);
+      seen.add(img.url);
+    }
+  });
+
+  // Auto-select first logo
+  if (logos.length > 0) {
+    logoSel.value = logos[0].url;
+    emailSeriesState.selectedLogo = logos[0].url;
+    onEmailLogoChange();
+  }
+}
+
+function onEmailLogoChange() {
+  const url = document.getElementById('emailLogoSelect').value;
+  emailSeriesState.selectedLogo = url || null;
+  const preview = document.getElementById('emailLogoPreview');
+  if (url) {
+    preview.innerHTML = `<img src="${url}" alt="Logo" style="max-width:60px;max-height:36px;object-fit:contain;">`;
+  } else {
+    preview.innerHTML = '<span class="text-xs text-muted">No logo</span>';
+  }
+}
+
+function onSeriesToggle() {
+  emailSeriesState.series.nurture.enabled = document.getElementById('seriesNurtureCheck').checked;
+  emailSeriesState.series.welcome.enabled = document.getElementById('seriesWelcomeCheck').checked;
+
+  // Update border styling
+  document.getElementById('seriesToggleNurture').className =
+    'flex items-start gap-3 p-4 bg-surface rounded-lg border-2 transition cursor-pointer ' +
+    (emailSeriesState.series.nurture.enabled ? 'border-primary/30 hover:border-primary/50' : 'border-transparent hover:border-gray-300');
+  document.getElementById('seriesToggleWelcome').className =
+    'flex items-start gap-3 p-4 bg-surface rounded-lg border-2 transition cursor-pointer ' +
+    (emailSeriesState.series.welcome.enabled ? 'border-primary/30 hover:border-primary/50' : 'border-transparent hover:border-gray-300');
+}
+
+async function generateSeriesCopy() {
+  const enabled = [];
+  if (emailSeriesState.series.nurture.enabled) enabled.push('nurture');
+  if (emailSeriesState.series.welcome.enabled) enabled.push('welcome');
+
+  if (enabled.length === 0) {
+    const errEl = document.getElementById('emailError');
+    errEl.textContent = 'Please select at least one series.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('emailError').classList.add('hidden');
+  document.getElementById('emailProgress').classList.remove('hidden');
+  document.getElementById('btnGenerateCopy').classList.add('opacity-60', 'pointer-events-none');
+
+  const config = gatherFinalConfig();
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/email-series-copy`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ config, series: enabled })
+    });
+
+    if (!resp.ok) throw new Error('Failed to generate email copy');
+    const data = await resp.json();
+
+    // Store copy in state
+    for (const sk of enabled) {
+      if (data[sk]) {
+        emailSeriesState.series[sk].emails = data[sk];
+      }
+    }
+
+    document.getElementById('emailProgress').classList.add('hidden');
+    document.getElementById('btnGenerateCopy').classList.remove('opacity-60', 'pointer-events-none');
+    renderSeriesCards();
+  } catch (err) {
+    document.getElementById('emailProgress').classList.add('hidden');
+    document.getElementById('btnGenerateCopy').classList.remove('opacity-60', 'pointer-events-none');
+    const errEl = document.getElementById('emailError');
+    errEl.textContent = 'Error: ' + (err.message || 'Unknown error');
+    errEl.classList.remove('hidden');
+  }
+}
+
+function renderSeriesCards() {
+  const container = document.getElementById('seriesCardsContainer');
+  container.innerHTML = '';
+  container.classList.remove('hidden');
+
+  const allImages = (analysisResult.images || []).filter(i => i.selected !== false);
+  const waitLabels = { nurture: '5-day wait', welcome: '1-day wait' };
+  const seriesLabels = { nurture: 'Nurture Series', welcome: 'Welcome Series' };
+  const seriesColors = { nurture: '#0176d3', welcome: '#16a34a' };
+
+  for (const sk of ['nurture', 'welcome']) {
+    const s = emailSeriesState.series[sk];
+    if (!s.enabled || s.emails.length === 0) continue;
+
+    const seriesDiv = document.createElement('div');
+    seriesDiv.className = 'bg-surface rounded-xl border border-gray-200 overflow-hidden';
+
+    // Series header
+    let header = document.createElement('div');
+    header.className = 'px-6 py-4 border-b border-gray-200 flex items-center gap-3';
+    header.innerHTML = `
+      <div class="w-3 h-3 rounded-full" style="background:${seriesColors[sk]}"></div>
+      <h3 class="font-bold text-secondary text-lg">${seriesLabels[sk]}</h3>
+      <span class="text-xs text-muted ml-auto">${s.emails.length} emails · ${waitLabels[sk]} between sends</span>
+    `;
+    seriesDiv.appendChild(header);
+
+    // Email cards
+    s.emails.forEach((email, idx) => {
+      if (idx > 0) {
+        // Wait indicator between emails
+        const waitDiv = document.createElement('div');
+        waitDiv.className = 'flex items-center justify-center py-2 bg-gray-50';
+        waitDiv.innerHTML = `
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>${waitLabels[sk]}</span>
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+          </div>
+        `;
+        seriesDiv.appendChild(waitDiv);
+      }
+
+      const emailDiv = document.createElement('div');
+      emailDiv.className = 'p-6 border-b border-gray-100 last:border-b-0';
+
+      // Hero image selector options
+      let heroOptions = '<option value="">No hero image</option>';
+      allImages.forEach((img, imgIdx) => {
+        const label = img.alt || img.label || img.type || `Image ${imgIdx + 1}`;
+        heroOptions += `<option value="${img.url}">${label}</option>`;
+      });
+
+      emailDiv.innerHTML = `
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <h4 class="font-semibold text-secondary">${email.name}</h4>
+            <span class="text-xs text-muted">Email ${idx + 1} of ${s.emails.length}</span>
+          </div>
+          <button onclick="previewEmail('${sk}', ${idx})" class="px-3 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition cursor-pointer flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            Preview
+          </button>
+        </div>
+        <div class="mb-3">
+          <label class="text-xs font-medium text-muted block mb-1">Hero Image</label>
+          <select onchange="emailSeriesState.series['${sk}'].emails[${idx}].heroUrl=this.value" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white">
+            ${heroOptions}
+          </select>
+          <p class="text-xs text-muted mt-1 italic" id="heroHint_${sk}_${idx}">No hero image — add one in your CMS editor after deploy.</p>
+        </div>
+        <div class="grid md:grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-xs font-medium text-muted block mb-1">Subject Line</label>
+            <input type="text" value="${email.subject.replace(/"/g, '&quot;')}" onchange="emailSeriesState.series['${sk}'].emails[${idx}].subject=this.value"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-muted block mb-1">Preheader</label>
+            <input type="text" value="${email.preheader.replace(/"/g, '&quot;')}" onchange="emailSeriesState.series['${sk}'].emails[${idx}].preheader=this.value"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="text-xs font-medium text-muted block mb-1">Heading</label>
+          <input type="text" value="${email.heading.replace(/"/g, '&quot;')}" onchange="emailSeriesState.series['${sk}'].emails[${idx}].heading=this.value"
+            class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm">
+        </div>
+        <div class="mb-3">
+          <label class="text-xs font-medium text-muted block mb-1">Body</label>
+          <textarea rows="3" onchange="emailSeriesState.series['${sk}'].emails[${idx}].body=this.value"
+            class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm resize-y">${email.body}</textarea>
+        </div>
+        <div class="grid md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-muted block mb-1">CTA Button Text</label>
+            <input type="text" value="${email.cta_text.replace(/"/g, '&quot;')}" onchange="emailSeriesState.series['${sk}'].emails[${idx}].cta_text=this.value"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-muted block mb-1">CTA URL</label>
+            <input type="text" value="${email.cta_url || '#'}" onchange="emailSeriesState.series['${sk}'].emails[${idx}].cta_url=this.value"
+              class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm" placeholder="#">
+          </div>
+        </div>
+      `;
+
+      // Add heroUrl field to state
+      if (!email.heroUrl) email.heroUrl = null;
+
+      seriesDiv.appendChild(emailDiv);
+    });
+
+    container.appendChild(seriesDiv);
+  }
+
+  // Show deploy button
+  document.getElementById('btnDeployEmails').classList.remove('hidden');
+}
+
+async function previewEmail(seriesKey, emailIdx) {
+  const email = emailSeriesState.series[seriesKey].emails[emailIdx];
+  if (!email) return;
+
+  const config = gatherFinalConfig();
+  const logoUrl = emailSeriesState.selectedLogo || '';
+  const heroUrl = email.heroUrl || '';
+
+  // Show modal immediately with loading
+  document.getElementById('previewModalTitle').textContent = email.name;
+  document.getElementById('emailPreviewFrame').srcdoc = '<div style="padding:40px;text-align:center;color:#999;font-family:Arial,sans-serif;">Loading preview...</div>';
+  document.getElementById('emailPreviewModal').classList.remove('hidden');
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/email-preview`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ copy: email, config, logoUrl, heroUrl })
+    });
+    if (!resp.ok) throw new Error('Failed to generate preview');
+    const data = await resp.json();
+    document.getElementById('emailPreviewFrame').srcdoc = data.html;
+  } catch (err) {
+    document.getElementById('emailPreviewFrame').srcdoc = `<div style="padding:40px;text-align:center;color:#c00;font-family:Arial,sans-serif;">Error: ${err.message}</div>`;
+  }
+}
+
+function closeEmailPreview() {
+  document.getElementById('emailPreviewModal').classList.add('hidden');
+}
+
+async function startEmailDeploy() {
+  // Check OAuth session
+  try {
+    const connResp = await fetch(`${API_BASE}/api/sf/connection-status`);
+    const connData = await connResp.json();
+    if (!connData.connected) {
+      // Offer to connect — use the same OAuth flow as the brand deploy
+      const env = prompt('You need to connect to Salesforce first.\n\nEnter environment: "production" or "sandbox"', 'production');
+      if (!env) return;
+      const envKey = env.toLowerCase().includes('sandbox') ? 'sandbox' : 'production';
+      // Store config in localStorage so it survives the redirect
+      localStorage.setItem('brandConfig', JSON.stringify(gatherFinalConfig()));
+      localStorage.setItem('returnToEmails', 'true');
+      // Open OAuth in popup
+      const popup = window.open(`${API_BASE}/oauth/login?env=${envKey}`, 'sfOAuth', 'width=600,height=700');
+      if (!popup) {
+        // Popup blocked — redirect in same window
+        window.location.href = `${API_BASE}/oauth/login?env=${envKey}`;
+      }
+      return;
+    }
+  } catch (e) {
+    alert('Could not check Salesforce connection. Please try again.');
+    return;
+  }
+
+  // Show deploy modal
+  document.getElementById('emailDeployModal').classList.remove('hidden');
+
+  // Load workspace list
+  const wsSel = document.getElementById('emailDeployWorkspace');
+  wsSel.innerHTML = '<option value="">Loading workspaces...</option>';
+  try {
+    const wsResp = await fetch(`${API_BASE}/api/sf/workspaces`);
+    const wsData = await wsResp.json();
+    wsSel.innerHTML = '<option value="">Select a workspace...</option>';
+    (wsData.workspaces || []).forEach(ws => {
+      const opt = document.createElement('option');
+      opt.value = ws.id;
+      opt.textContent = ws.name;
+      opt.dataset.name = ws.name.replace(/\s+/g, '_');
+      wsSel.appendChild(opt);
+    });
+    if (wsData.marketingWorkspace) {
+      wsSel.value = wsData.marketingWorkspace.id;
+    }
+  } catch (e) {
+    wsSel.innerHTML = '<option value="">Failed to load workspaces</option>';
+  }
+
+  // Load consent config
+  try {
+    const ccResp = await fetch(`${API_BASE}/api/sf/consent-config`);
+    const ccData = await ccResp.json();
+
+    // Senders
+    const senderSel = document.getElementById('emailDeploySender');
+    senderSel.innerHTML = '<option value="">None (configure in Flow Builder)</option>';
+    (ccData.senders || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.label;
+      senderSel.appendChild(opt);
+    });
+
+    // Subscriptions
+    const subSel = document.getElementById('emailDeploySub');
+    subSel.innerHTML = '<option value="">None (configure later)</option>';
+    (ccData.subscriptions || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      subSel.appendChild(opt);
+    });
+
+    // Channel Types
+    const chanSel = document.getElementById('emailDeployChan');
+    chanSel.innerHTML = '<option value="">None (configure later)</option>';
+    (ccData.channelTypes || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      chanSel.appendChild(opt);
+    });
+
+    // Segments
+    const segSel = document.getElementById('emailDeploySegment');
+    segSel.innerHTML = '<option value="">None (assign in Flow Builder)</option>';
+    (ccData.segments || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      segSel.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('Could not load consent config:', e);
+  }
+}
+
+function closeDeployModal() {
+  document.getElementById('emailDeployModal').classList.add('hidden');
+}
+
+async function executeEmailDeploy() {
+  const workspaceId = document.getElementById('emailDeployWorkspace').value;
+  if (!workspaceId) {
+    alert('Please select a workspace.');
+    return;
+  }
+
+  const wsOption = document.getElementById('emailDeployWorkspace').selectedOptions[0];
+  const workspaceName = wsOption.dataset.name || 'Default_Content_Workspace';
+  const senderId = document.getElementById('emailDeploySender').value;
+  const subscriptionId = document.getElementById('emailDeploySub').value;
+  const channelTypeId = document.getElementById('emailDeployChan').value;
+  const segmentId = document.getElementById('emailDeploySegment').value;
+  const createFlow = document.getElementById('emailDeployCreateFlow').checked;
+
+  const config = gatherFinalConfig();
+
+  // Pre-check: ensure at least one series has generated emails
+  const hasNurture = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
+  const hasWelcome = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
+  if (!hasNurture && !hasWelcome) {
+    alert('No email series ready to deploy. Please generate email copy first.');
+    return;
+  }
+
+  const progressEl = document.getElementById('emailDeployProgress');
+  const statusEl = document.getElementById('emailDeployStatus');
+  const resultEl = document.getElementById('emailDeployResult');
+  const deployBtn = document.getElementById('btnExecuteDeploy');
+
+  progressEl.classList.remove('hidden');
+  resultEl.classList.add('hidden');
+  deployBtn.classList.add('opacity-60', 'pointer-events-none');
+
+  const seriesToDeploy = [];
+  if (emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0) seriesToDeploy.push('nurture');
+  if (emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0) seriesToDeploy.push('welcome');
+
+  let allResults = [];
+  let allErrors = [];
+
+  for (const sk of seriesToDeploy) {
+    statusEl.textContent = `Deploying ${sk} series... Creating emails and flow...`;
+
+    const seriesEmails = emailSeriesState.series[sk].emails.map(e => ({
+      copy: e,
+      logoUrl: emailSeriesState.selectedLogo || '',
+      heroUrl: e.heroUrl || ''
+    }));
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/sf/deploy-email-series`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          series: sk,
+          emails: seriesEmails,
+          config,
+          workspaceId,
+          workspaceName,
+          segmentId,
+          senderId,
+          subscriptionId,
+          channelTypeId,
+          createFlow
+        })
+      });
+
+      if (resp.status === 401) {
+        allErrors.push(`${sk} series: Salesforce session expired. Please reconnect and try again.`);
+        continue;
+      }
+
+      const data = await resp.json();
+
+      if (data.error) {
+        allErrors.push(`${sk} series: ${data.error}`);
+        continue;
+      }
+
+      if (data.emails) allResults.push(...data.emails.map(e => ({ ...e, series: sk })));
+      if (data.flow) allResults.push({ type: 'flow', series: sk, ...data.flow });
+      if (data.errors && data.errors.length > 0) allErrors.push(...data.errors);
+    } catch (err) {
+      allErrors.push(`${sk} series: ${err.message}`);
+    }
+  }
+
+  progressEl.classList.add('hidden');
+  deployBtn.classList.remove('opacity-60', 'pointer-events-none');
+
+  // Show results
+  resultEl.classList.remove('hidden');
+  let resultHtml = '';
+
+  if (allResults.length > 0) {
+    resultHtml += '<div class="text-success font-semibold mb-2">✅ Deployment Complete</div>';
+    resultHtml += '<div class="space-y-1 text-sm">';
+    allResults.forEach(r => {
+      if (r.type === 'flow') {
+        resultHtml += `<div>📋 Flow: <strong>${r.name}</strong> (${r.status})</div>`;
+      } else {
+        resultHtml += `<div>📧 Email: <strong>${r.name}</strong></div>`;
+      }
+    });
+    resultHtml += '</div>';
+  }
+
+  if (allErrors.length > 0) {
+    resultHtml += '<div class="mt-3 text-error text-sm">';
+    resultHtml += '<div class="font-semibold mb-1">⚠️ Some issues occurred:</div>';
+    allErrors.forEach(e => { resultHtml += `<div>• ${e}</div>`; });
+    resultHtml += '</div>';
+  }
+
+  if (allResults.length === 0 && allErrors.length === 0) {
+    resultHtml = '<div class="text-muted">No series were selected for deployment.</div>';
+  }
+
+  resultEl.innerHTML = resultHtml;
+}
+
+// Load industries on page load
+loadIndustries();
+
 // On page load, check for OAuth redirect (same-window fallback)
 if (new URLSearchParams(window.location.search).get('connected') === '1') {
   // Remove query param from URL
@@ -1222,17 +2038,29 @@ if (new URLSearchParams(window.location.search).get('connected') === '1') {
         brandName: config.brandName,
         description: config.description,
         identity: config.identity,
+        toneKey: config.tone.key || 'general',
         toneLabel: config.tone.label,
+        toneIndustry: '',
         toneDescription: config.tone.description,
+        customerTerm: config.tone.customerTerm || 'customers',
         colors: config.colors,
         headingFont: config.typography.headingFont,
         bodyFont: config.typography.bodyFont,
         buttonColor: config.buttonStyle.color,
         buttonRadius: config.buttonStyle.borderRadius,
-        images: config.images.map(i => ({ ...i, selected: true }))
+        images: config.images.map(i => ({ ...i, selected: true })),
+        sourceUrl: config.sourceUrl || ''
       };
       renderPreview();
-      setTimeout(() => startDeploy(), 300);
+      // Check if we came from email deploy flow
+      if (localStorage.getItem('returnToEmails') === 'true') {
+        localStorage.removeItem('returnToEmails');
+        showStep('step-emails');
+        initEmailSeriesUI();
+        setTimeout(() => startEmailDeploy(), 500);
+      } else {
+        setTimeout(() => startDeploy(), 300);
+      }
     } catch (e) {}
   }
 }

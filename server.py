@@ -255,137 +255,292 @@ def extract_fonts(soup, raw_html, css_texts):
     }
 
 
-# ─── Tone Analysis ───
+# ─── FSI Industry Tone Profiles ───
 
-TONE_LEXICON = {
-    'professional': ['solutions', 'enterprise', 'industry', 'leading', 'trusted', 'expertise',
-                     'compliance', 'professional', 'excellence', 'strategic', 'performance',
-                     'optimize', 'deliver', 'partners', 'global', 'reliable', 'proven',
-                     'commitment', 'quality', 'efficient'],
-    'friendly': ['welcome', 'together', 'community', 'join', 'share', 'help', 'easy',
-                 'simple', 'friendly', 'everyone', 'connect', 'team', 'support', 'care',
-                 'great', 'wonderful', 'happy', 'smile', 'neighbor', 'folks'],
-    'bold': ['disrupt', 'revolution', 'transform', 'bold', 'future', 'next', 'power',
-             'unleash', 'breakthrough', 'fearless', 'unstoppable', 'change', 'innovate',
-             'impact', 'redefine', 'reimagine', 'challenge', 'dare', 'launch'],
-    'warm': ['heart', 'family', 'love', 'personal', 'journey', 'story', 'inspire',
-             'dream', 'believe', 'nurture', 'grow', 'caring', 'compassion', 'human',
-             'authentic', 'home', 'yours', 'together', 'life', 'moment'],
-    'technical': ['api', 'platform', 'deploy', 'infrastructure', 'data', 'scale',
-                  'architecture', 'integrate', 'system', 'protocol', 'algorithm',
-                  'stack', 'code', 'developer', 'framework', 'automate', 'analytics'],
-    'playful': ['fun', 'awesome', 'wow', 'amazing', 'cool', 'play', 'enjoy',
-                'adventure', 'discover', 'magic', 'surprise', 'delight', 'exciting',
-                'vibe', 'epic', 'whoa', 'sweet', 'boom'],
-    'luxurious': ['premium', 'exclusive', 'luxury', 'elegant', 'refined', 'curated',
-                  'bespoke', 'crafted', 'timeless', 'heritage', 'prestige', 'exquisite',
-                  'sophisticat', 'artisan', 'distinguished', 'finest'],
-    'casual': ['hey', 'stuff', 'check out', 'pretty', 'thing', 'got', 'yeah',
-               'super', 'chill', 'real', 'honest', 'straightforward', 'no-nonsense',
-               'actually', 'basically', 'just']
+INDUSTRY_TONES = {
+    'general': {
+        'label': 'General Business',
+        'industry': 'General',
+        'description': 'Clear, professional language that focuses on the value your business delivers. Approachable and confident without industry-specific jargon.',
+        'identity_template': '{name} is a business committed to delivering value and exceptional service. They communicate with clarity and confidence, focusing on customer needs and practical solutions.',
+        'customer_term': 'customers'
+    },
+    'banking_retail': {
+        'label': 'Retail Banking',
+        'industry': 'Banking',
+        'description': 'Clear, reassuring language that builds trust with everyday banking customers. Emphasizes convenience, security, and personal financial wellness.',
+        'identity_template': '{name} is a retail banking institution committed to helping customers manage their finances with confidence. They communicate with clarity and warmth, making banking accessible and straightforward.',
+        'customer_term': 'customers'
+    },
+    'banking_commercial': {
+        'label': 'Commercial / B2B Banking',
+        'industry': 'Banking',
+        'description': 'Authoritative, solutions-oriented language for business and corporate clients. Focuses on strategic partnership, capital markets expertise, and driving business growth.',
+        'identity_template': '{name} is a commercial banking partner focused on empowering businesses with tailored financial solutions. They speak with authority and industry expertise, positioning themselves as strategic advisors.',
+        'customer_term': 'clients'
+    },
+    'banking_community': {
+        'label': 'Community Banks',
+        'industry': 'Banking',
+        'description': 'Warm, relationship-driven language rooted in local community values. Emphasizes personal service, neighborly trust, and reinvesting in the communities they serve.',
+        'identity_template': '{name} is a community bank built on personal relationships and local roots. They communicate with genuine warmth, emphasizing their commitment to the neighborhoods and people they serve.',
+        'customer_term': 'customers'
+    },
+    'credit_unions': {
+        'label': 'Credit Unions',
+        'industry': 'Banking',
+        'description': 'Member-focused, cooperative language that emphasizes shared ownership and community benefit. Highlights that members are owners, not just account holders.',
+        'identity_template': '{name} is a member-owned credit union dedicated to putting members first. As a cooperative, they reinvest in their community and communicate with an inclusive, people-first voice that reflects their commitment to shared financial well-being.',
+        'customer_term': 'members'
+    },
+    'wealth_management': {
+        'label': 'Wealth Management',
+        'industry': 'Wealth & Asset Management',
+        'description': 'Refined, consultative language conveying deep expertise and discretion. Focuses on legacy planning, personalized strategies, and long-term financial stewardship.',
+        'identity_template': '{name} is a wealth management firm dedicated to preserving and growing their clients\' financial legacies. They communicate with sophistication and discretion, reflecting their commitment to personalized, long-term financial stewardship.',
+        'customer_term': 'clients'
+    },
+    'asset_management': {
+        'label': 'Asset Management',
+        'industry': 'Wealth & Asset Management',
+        'description': 'Data-driven, institutional language focused on portfolio performance, risk management, and market insight. Balances technical precision with strategic vision.',
+        'identity_template': '{name} is an asset management firm delivering institutional-grade investment strategies. They communicate with analytical precision and market authority, providing investors with transparent, performance-focused insights.',
+        'customer_term': 'investors'
+    },
+    'insurance_pc': {
+        'label': 'Property & Casualty Insurance',
+        'industry': 'Insurance',
+        'description': 'Protective, reassuring language focused on risk mitigation and peace of mind. Balances technical coverage details with empathetic, human-centered messaging.',
+        'identity_template': '{name} provides property and casualty insurance solutions designed to protect what matters most. They communicate with a balance of expertise and empathy, helping customers feel secure and prepared.',
+        'customer_term': 'policyholders'
+    },
+    'insurance_life': {
+        'label': 'Life Insurance',
+        'industry': 'Insurance',
+        'description': 'Thoughtful, future-oriented language centered on family security and legacy protection. Balances sensitivity with confidence in long-term planning.',
+        'identity_template': '{name} offers life insurance solutions that help families plan for the future with confidence. They communicate thoughtfully, balancing sensitivity with assurance to help customers protect the people who matter most.',
+        'customer_term': 'policyholders'
+    },
+    'insurance_group': {
+        'label': 'Group Benefits',
+        'industry': 'Insurance',
+        'description': 'Professional, employer-focused language that emphasizes employee well-being, retention, and competitive benefits packages.',
+        'identity_template': '{name} delivers group benefits solutions that help employers attract and retain top talent. They communicate professionally, emphasizing employee well-being, comprehensive coverage, and streamlined administration.',
+        'customer_term': 'employers and employees'
+    },
+    'insurance_brokerage': {
+        'label': 'Insurance Brokerage',
+        'industry': 'Insurance',
+        'description': 'Advisory, market-savvy language positioned as an independent expert navigating options on behalf of clients. Emphasizes choice, advocacy, and tailored coverage.',
+        'identity_template': '{name} is an independent insurance brokerage that advocates for clients by navigating the market to find optimal coverage. They communicate as trusted advisors, emphasizing choice, transparency, and client-first service.',
+        'customer_term': 'clients'
+    },
+    'lending_mortgage': {
+        'label': 'Lending & Mortgage',
+        'industry': 'Lending',
+        'description': 'Guiding, milestone-oriented language that helps borrowers navigate the path to homeownership or capital access. Balances technical loan details with excitement about life goals.',
+        'identity_template': '{name} is a lending institution dedicated to making homeownership and financial goals achievable. They communicate with a guiding, encouraging voice that simplifies complex lending processes and celebrates customer milestones.',
+        'customer_term': 'borrowers'
+    },
+    'payments': {
+        'label': 'Payments & Fintech',
+        'industry': 'Payments',
+        'description': 'Modern, efficiency-driven language focused on speed, innovation, and seamless transactions. Speaks to both businesses and consumers with a forward-thinking voice.',
+        'identity_template': '{name} is a payments technology company enabling fast, secure, and seamless transactions. They communicate with a modern, forward-thinking voice, emphasizing innovation, reliability, and the power of frictionless commerce.',
+        'customer_term': 'customers'
+    }
 }
 
-TONE_LABELS = {
-    'professional': 'Professional and authoritative',
-    'friendly': 'Friendly and approachable',
-    'bold': 'Bold and innovative',
-    'warm': 'Warm and empathetic',
-    'technical': 'Technical and precise',
-    'playful': 'Playful and energetic',
-    'luxurious': 'Luxurious and refined',
-    'casual': 'Casual and conversational'
-}
+def get_industry_list():
+    """Return structured industry/sub-industry list for the frontend dropdown."""
+    industries = {}
+    for key, tone in INDUSTRY_TONES.items():
+        ind = tone['industry']
+        if ind not in industries:
+            industries[ind] = []
+        industries[ind].append({
+            'key': key,
+            'label': tone['label']
+        })
+    return industries
 
-TONE_DESCRIPTIONS = {
-    'professional': 'Communicates with confidence and credibility. Uses formal language that establishes authority and trust while maintaining clarity.',
-    'friendly': 'Speaks in a warm, inclusive voice that makes everyone feel welcome. Uses simple language and a helpful, approachable manner.',
-    'bold': 'Challenges the status quo with energetic, forward-thinking language. Speaks to innovation, transformation, and creating impact.',
-    'warm': 'Connects on a human level with empathy and authenticity. Uses personal, heartfelt language that inspires and nurtures.',
-    'technical': 'Precise and detailed communication focused on capabilities and specifications. Values accuracy and depth of information.',
-    'playful': 'Light-hearted and fun communication that sparks joy. Uses creative language, humor, and enthusiasm to engage audiences.',
-    'luxurious': 'Refined, elegant communication that conveys exclusivity and premium quality. Uses sophisticated language and measured pacing.',
-    'casual': 'Straightforward, down-to-earth communication. Speaks like a trusted friend — honest, relatable, and no-nonsense.'
-}
+def analyze_tone(soup, industry_key=None):
+    """Analyze tone — if an industry is selected, use that profile. Otherwise auto-detect."""
+    if industry_key and industry_key in INDUSTRY_TONES:
+        tone = INDUSTRY_TONES[industry_key]
+        return {
+            'key': industry_key,
+            'label': tone['label'],
+            'industry': tone['industry'],
+            'description': tone['description'],
+            'customer_term': tone['customer_term']
+        }
 
-def analyze_tone(soup):
-    """Analyze tone from page text content."""
+    # Auto-detect: score page text against FSI keywords
     text_parts = []
-
-    # Meta description
     meta = soup.find('meta', attrs={'name': 'description'})
     if meta and meta.get('content'):
         text_parts.append(meta['content'])
-
-    # OG description
     og = soup.find('meta', attrs={'property': 'og:description'})
     if og and og.get('content'):
         text_parts.append(og['content'])
-
-    # Headings
     for tag in soup.find_all(['h1', 'h2', 'h3', 'h4']):
         text_parts.append(tag.get_text(strip=True))
-
-    # Paragraphs
     for p in soup.find_all('p'):
         text_parts.append(p.get_text(strip=True))
-
-    # Hero / tagline
     for cls in ['hero', 'tagline', 'subtitle', 'banner', 'headline', 'slogan']:
         for el in soup.find_all(class_=re.compile(cls, re.I)):
             text_parts.append(el.get_text(strip=True))
 
     all_text = ' '.join(text_parts).lower()[:8000]
 
-    scores = {}
-    for tone, words in TONE_LEXICON.items():
-        score = 0
-        for w in words:
-            score += len(re.findall(r'\b' + re.escape(w), all_text, re.I))
-        scores[tone] = score
+    # Industry detection keywords
+    INDUSTRY_KEYWORDS = {
+        'banking_retail': ['checking', 'savings', 'debit card', 'atm', 'mobile banking', 'personal banking',
+                           'direct deposit', 'online banking', 'bank account', 'personal finance'],
+        'banking_commercial': ['commercial', 'treasury', 'capital markets', 'corporate banking', 'business banking',
+                               'trade finance', 'cash management', 'commercial lending', 'business solutions'],
+        'banking_community': ['community bank', 'local bank', 'neighborhood', 'community', 'locally owned',
+                              'hometown', 'community development', 'small business lending'],
+        'credit_unions': ['credit union', 'member', 'membership', 'member-owned', 'cooperative', 'share account',
+                          'member services', 'join today', 'become a member', 'member benefits'],
+        'wealth_management': ['wealth', 'portfolio', 'estate planning', 'financial planning', 'advisor',
+                              'high net worth', 'family office', 'trust', 'legacy', 'fiduciary'],
+        'asset_management': ['fund', 'etf', 'institutional', 'asset management', 'portfolio management',
+                             'investment strategy', 'risk management', 'alpha', 'benchmark'],
+        'insurance_pc': ['property', 'casualty', 'auto insurance', 'home insurance', 'claims',
+                         'coverage', 'policy', 'deductible', 'liability', 'renters insurance'],
+        'insurance_life': ['life insurance', 'term life', 'whole life', 'beneficiary', 'death benefit',
+                           'annuity', 'universal life', 'life protection', 'life coverage'],
+        'insurance_group': ['group benefits', 'employee benefits', 'health plan', 'dental', 'vision',
+                            'disability', 'voluntary benefits', 'open enrollment', 'employer'],
+        'insurance_brokerage': ['brokerage', 'broker', 'independent agent', 'insurance market',
+                                'compare quotes', 'coverage options', 'shop insurance'],
+        'lending_mortgage': ['mortgage', 'home loan', 'refinance', 'preapproval', 'loan officer',
+                             'closing costs', 'interest rate', 'home equity', 'fha', 'va loan'],
+        'payments': ['payments', 'fintech', 'transaction', 'checkout', 'payment processing',
+                     'digital wallet', 'contactless', 'point of sale', 'merchant', 'real-time payments']
+    }
 
-    winner = max(scores, key=scores.get) if any(scores.values()) else 'professional'
+    scores = {}
+    for key, keywords in INDUSTRY_KEYWORDS.items():
+        score = 0
+        for kw in keywords:
+            score += len(re.findall(re.escape(kw), all_text, re.I))
+        scores[key] = score
+
+    # Only use industry match if score is meaningful (≥2 keyword hits)
+    # Otherwise fall back to 'general' for non-FSI businesses
+    if any(scores.values()) and max(scores.values()) >= 2:
+        best = max(scores, key=scores.get)
+    else:
+        best = 'general'
+    tone = INDUSTRY_TONES[best]
 
     return {
-        'label': TONE_LABELS[winner],
-        'description': TONE_DESCRIPTIONS[winner]
+        'key': best,
+        'label': tone['label'],
+        'industry': tone['industry'],
+        'description': tone['description'],
+        'customer_term': tone['customer_term']
     }
 
 
 # ─── Identity Generation ───
 
-def generate_identity(name, soup, tone):
-    meta = soup.find('meta', attrs={'name': 'description'})
-    meta_desc = (meta['content'].strip() if meta and meta.get('content') else '')
+def extract_website_text(soup):
+    """Extract meaningful brand text from the website (meta desc, tagline, key headings)."""
+    text_pieces = []
 
-    # Look for a real tagline/slogan in hero sections
-    tagline_text = ''
-    for cls in ['tagline', 'slogan', 'hero-text', 'hero-title', 'banner-title']:
+    # Meta description
+    meta = soup.find('meta', attrs={'name': 'description'})
+    if meta and meta.get('content'):
+        text_pieces.append(meta['content'].strip())
+
+    # OG description as fallback
+    og = soup.find('meta', attrs={'property': 'og:description'})
+    if og and og.get('content') and og['content'].strip() not in text_pieces:
+        text_pieces.append(og['content'].strip())
+
+    # Look for real taglines/slogans
+    for cls in ['tagline', 'slogan', 'hero-text', 'hero-title', 'banner-title',
+                'hero-subtitle', 'hero-description', 'hero-copy', 'headline']:
         el = soup.find(class_=re.compile(cls, re.I))
         if el:
             t = el.get_text(strip=True)
-            if len(t) > 10 and len(t) < 200:
-                tagline_text = t
-                break
+            if 10 < len(t) < 200 and t not in text_pieces:
+                text_pieces.append(t)
 
-    # Prefer meta description (usually a real brand statement),
-    # then tagline element, then skip — never use <h1> as it's often
-    # just the page title (e.g. "Chase home page")
-    tagline = meta_desc or tagline_text
-
-    # Filter out generic page titles that aren't real taglines
+    # Filter out generic/useless page titles
     generic_patterns = ['home page', 'homepage', 'welcome to', 'official site',
-                        'official website', 'log in', 'sign in', 'page not found']
-    if tagline and any(p in tagline.lower() for p in generic_patterns):
-        tagline = ''
+                        'official website', 'log in', 'sign in', 'page not found',
+                        'cookie', 'privacy', 'accept all']
+    text_pieces = [t for t in text_pieces
+                   if not any(p in t.lower() for p in generic_patterns)]
 
-    identity = f"{name} is a brand that {tone['description'].lower().rstrip('.')}."
-    if tagline:
-        identity += f' Their core message: "{tagline[:200]}."'
-    identity += ' They value consistency, clarity, and connecting with their audience through every touchpoint.'
+    return text_pieces
+
+
+def generate_identity(name, soup, tone):
+    """Generate brand identity blending industry profile with scraped website text."""
+    website_text = extract_website_text(soup)
+    tone_key = tone.get('key', 'banking_retail')
+    industry_tone = INDUSTRY_TONES.get(tone_key, INDUSTRY_TONES['banking_retail'])
+
+    # Start with the industry-specific identity template
+    identity = industry_tone['identity_template'].format(name=name)
+
+    # Blend in the actual website text to make it specific
+    if website_text:
+        # Use the best piece of scraped text (meta description or tagline)
+        best_text = website_text[0]
+        if len(best_text) > 20:
+            identity += f' In their own words: "{best_text[:250]}"'
+
     return identity
 
 
 # ─── Image Extraction ───
+
+def get_best_src(img):
+    """Get the best image source from an element, checking multiple lazy-loading patterns."""
+    # Priority order: actual src, then various lazy-load data attributes
+    for attr in ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy',
+                 'data-srcset', 'data-bg', 'data-image', 'data-full-src', 'data-hi-res-src',
+                 'data-large-file', 'data-orig-file', 'loading-src']:
+        val = img.get(attr, '')
+        if val and not val.startswith('data:') and val.strip():
+            # For srcset-like attributes, pick the best (largest) URL
+            if 'srcset' in attr.lower():
+                return parse_srcset_best(val)
+            return val.strip()
+    return ''
+
+
+def parse_srcset_best(srcset_val):
+    """Parse a srcset attribute and return the URL of the largest image."""
+    if not srcset_val:
+        return ''
+    best_url = ''
+    best_width = 0
+    for entry in srcset_val.split(','):
+        parts = entry.strip().split()
+        if not parts:
+            continue
+        url = parts[0]
+        width = 0
+        if len(parts) > 1:
+            w_match = re.search(r'(\d+)w', parts[1])
+            x_match = re.search(r'([\d.]+)x', parts[1])
+            if w_match:
+                width = int(w_match.group(1))
+            elif x_match:
+                width = int(float(x_match.group(1)) * 1000)
+        if width >= best_width and url and not url.startswith('data:'):
+            best_width = width
+            best_url = url
+    return best_url or ''
+
 
 def extract_images(soup, base_url):
     images = []
@@ -393,11 +548,18 @@ def extract_images(soup, base_url):
     parsed_base = urlparse(base_url)
 
     def add_image(src, img_type, alt):
+        if not src or src.startswith('data:'):
+            return
         url = resolve_url(src, base_url)
         if not url or url in seen:
             return
-        # Skip tiny tracking pixels, svgs with data URIs, etc.
-        if any(x in url.lower() for x in ['pixel', 'tracking', 'spacer', '1x1', 'blank.gif', 'beacon']):
+        # Skip tiny tracking pixels, svgs with data URIs, icons, etc.
+        skip_patterns = ['pixel', 'tracking', 'spacer', '1x1', 'blank.gif', 'beacon',
+                         'icon-', 'favicon', 'spinner', 'loading.', 'placeholder']
+        if any(x in url.lower() for x in skip_patterns):
+            return
+        # Skip very small SVGs that are likely icons
+        if url.lower().endswith('.svg') and img_type != 'logo':
             return
         seen.add(url)
         images.append({'url': url, 'type': img_type, 'alt': alt or img_type.title(), 'selected': True})
@@ -415,22 +577,63 @@ def extract_images(soup, base_url):
         ('img[id*="logo"]', 'logo'),
         ('.navbar-brand img', 'logo'),
         ('[class*="brand"] img', 'logo'),
+        # Also check <picture> inside logo areas
+        ('header picture source', 'logo'),
+        ('[class*="logo"] picture source', 'logo'),
     ]
     for selector, img_type in logo_selectors:
-        for img in soup.select(selector):
-            src = img.get('src') or img.get('data-src') or img.get('data-lazy-src', '')
-            alt = img.get('alt', 'Logo')
+        for el in soup.select(selector):
+            if el.name == 'source':
+                src = el.get('srcset', '')
+                if src:
+                    src = parse_srcset_best(src) or src.split(',')[0].strip().split()[0]
+                alt = 'Logo'
+            else:
+                src = get_best_src(el)
+                alt = el.get('alt', 'Logo')
             add_image(src, img_type, alt)
 
-    # SVG logos in header
-    for svg in soup.select('header svg, nav svg, [class*="logo"] svg'):
-        # Can't extract SVG easily as image URL, skip
-        pass
+    # SVG logos — check for SVG <img> with logo in src
+    for img in soup.select('header img[src$=".svg"], nav img[src$=".svg"]'):
+        add_image(img.get('src', ''), 'logo', img.get('alt', 'Logo'))
 
-    # Hero / large images
+    # <picture> elements — extract best source
+    for picture in soup.find_all('picture'):
+        sources = picture.find_all('source')
+        img_el = picture.find('img')
+        best_src = ''
+        alt = ''
+
+        # Try sources first (usually higher quality)
+        for source in sources:
+            srcset = source.get('srcset', '')
+            if srcset:
+                candidate = parse_srcset_best(srcset)
+                if candidate:
+                    best_src = candidate
+                    break
+
+        # Fallback to the <img> inside <picture>
+        if not best_src and img_el:
+            best_src = get_best_src(img_el)
+            alt = img_el.get('alt', '')
+
+        if best_src:
+            # Determine context
+            parent_class = ' '.join(picture.parent.get('class', [])) if picture.parent else ''
+            context = parent_class.lower()
+            is_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead', context))
+            add_image(best_src, 'hero' if is_hero else 'hero', alt or 'Image')
+
+    # Hero / large images — all <img> tags
     for img in soup.find_all('img'):
-        src = img.get('src') or img.get('data-src') or img.get('data-lazy-src', '')
+        src = get_best_src(img)
         alt = img.get('alt', '')
+        if not src:
+            # Try srcset on the img itself
+            srcset = img.get('srcset', '')
+            if srcset:
+                src = parse_srcset_best(srcset)
         if not src:
             continue
 
@@ -444,24 +647,42 @@ def extract_images(soup, base_url):
             h = 0
         is_large = w > 400 or h > 200
 
+        # Check CSS classes for size hints
+        img_classes = ' '.join(img.get('class', [])).lower() if img.get('class') else ''
+        is_large = is_large or bool(re.search(r'full|large|wide|cover|hero|banner|featured', img_classes))
+
         parent_class = ' '.join(img.parent.get('class', [])) if img.parent else ''
         grandparent_class = ' '.join(img.parent.parent.get('class', [])) if img.parent and img.parent.parent else ''
         context = (parent_class + ' ' + grandparent_class).lower()
-        in_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead', context))
+        in_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead|promo|spotlight', context))
 
-        src_hint = bool(re.search(r'hero|banner|featured|cover|main|splash|carousel', src, re.I))
+        src_hint = bool(re.search(r'hero|banner|featured|cover|main|splash|carousel|promo|spotlight|header', src, re.I))
 
         if is_large or in_hero or src_hint:
-            url = resolve_url(src, base_url)
-            if url and url not in seen:
-                add_image(src, 'hero', alt or 'Hero Image')
+            add_image(src, 'hero', alt or 'Hero Image')
 
-    # Background images
+    # Inline style background images
     for el in soup.find_all(style=re.compile(r'background')):
         style = el.get('style', '')
-        m = re.search(r'url\(["\']?([^"\')\s]+)["\']?\)', style)
-        if m:
+        for m in re.finditer(r'url\(["\']?([^"\')\s]+)["\']?\)', style):
             add_image(m.group(1), 'hero', 'Background Image')
+
+    # CSS background-image in <style> blocks
+    for style_tag in soup.find_all('style'):
+        css_text = style_tag.get_text()
+        for m in re.finditer(r'background(?:-image)?\s*:\s*[^;]*url\(["\']?([^"\')\s]+)["\']?\)', css_text):
+            src = m.group(1)
+            # Only include if it looks like a real image (not a gradient or icon)
+            if re.search(r'\.(jpg|jpeg|png|webp|gif)', src, re.I):
+                add_image(src, 'hero', 'Background Image')
+
+    # data-background attributes (common in slider/parallax plugins)
+    for el in soup.find_all(attrs={'data-background': True}):
+        add_image(el['data-background'], 'hero', 'Background Image')
+    for el in soup.find_all(attrs={'data-bg': True}):
+        add_image(el['data-bg'], 'hero', 'Background Image')
+    for el in soup.find_all(attrs={'data-bg-src': True}):
+        add_image(el['data-bg-src'], 'hero', 'Background Image')
 
     return images[:12]
 
@@ -562,7 +783,7 @@ def run_analysis(job_id, name, url):
 
         colors = extract_colors(soup, html, css_texts)
         fonts = extract_fonts(soup, html, css_texts)
-        tone = analyze_tone(soup)
+        tone = analyze_tone(soup)  # auto-detect industry from page text
         identity = generate_identity(name, soup, tone)
         images = extract_images(soup, final_url)
         btn_style = extract_button_style(soup, html, css_texts, colors)
@@ -590,8 +811,11 @@ def run_analysis(job_id, name, url):
             'brandName': name,
             'description': f'Brand identity for {name}, derived from {urlparse(final_url).hostname}',
             'identity': identity,
+            'toneKey': tone['key'],
             'toneLabel': tone['label'],
+            'toneIndustry': tone.get('industry', ''),
             'toneDescription': tone['description'],
+            'customerTerm': tone.get('customer_term', 'customers'),
             'colors': colors,
             'headingFont': fonts['heading'],
             'bodyFont': fonts['body'],
@@ -721,6 +945,55 @@ def scan_specific_page():
         })
     except Exception as e:
         return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/industries')
+def get_industries():
+    """Return the list of FSI industries and sub-industries for the frontend dropdown."""
+    return jsonify(get_industry_list())
+
+
+@app.route('/api/regenerate-identity', methods=['POST'])
+def regenerate_identity():
+    """Re-generate brand identity when user changes industry selection."""
+    data = request.json or {}
+    brand_name = data.get('brandName', 'Brand')
+    industry_key = data.get('industryKey', '')
+    source_url = data.get('sourceUrl', '')
+
+    if not industry_key or industry_key not in INDUSTRY_TONES:
+        return jsonify({'error': 'Invalid industry key'}), 400
+
+    tone = INDUSTRY_TONES[industry_key]
+
+    # If we have a source URL, re-fetch for website text
+    soup = None
+    if source_url:
+        try:
+            html, _ = fetch_page(source_url, timeout=8)
+            soup = BeautifulSoup(html, 'html.parser')
+        except:
+            pass
+
+    tone_data = {
+        'key': industry_key,
+        'label': tone['label'],
+        'industry': tone['industry'],
+        'description': tone['description'],
+        'customer_term': tone['customer_term']
+    }
+
+    if soup:
+        identity = generate_identity(brand_name, soup, tone_data)
+    else:
+        identity = tone['identity_template'].format(name=brand_name)
+
+    return jsonify({
+        'identity': identity,
+        'toneLabel': tone['label'],
+        'toneDescription': tone['description'],
+        'customerTerm': tone['customer_term']
+    })
 
 
 @app.route('/')
@@ -926,8 +1199,8 @@ def build_brand_content_body(config):
     }
 
 
-def sf_api(method, path, access_token, instance_url, body=None):
-    """Make an authenticated Salesforce REST API call."""
+def sf_api(method, path, access_token, instance_url, body=None, _retried=False):
+    """Make an authenticated Salesforce REST API call with auto-refresh on 401."""
     url = instance_url.rstrip('/') + path
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -939,6 +1212,13 @@ def sf_api(method, path, access_token, instance_url, body=None):
         resp = requests.post(url, headers=headers, json=body, timeout=30)
     else:
         resp = requests.request(method, url, headers=headers, json=body, timeout=30)
+
+    # Auto-refresh on 401 (expired token)
+    if resp.status_code == 401 and not _retried:
+        if try_refresh_token():
+            new_token = session.get('sf_access_token')
+            return sf_api(method, path, new_token, instance_url, body=body, _retried=True)
+
     return resp
 
 
@@ -1238,6 +1518,7 @@ def deploy_brand():
 
 
 @app.route('/api/sf/status')
+@app.route('/api/sf/connection-status')
 def sf_status():
     """Check if user is connected to Salesforce."""
     token = session.get('sf_access_token')
@@ -1245,6 +1526,1041 @@ def sf_status():
     return jsonify({
         'connected': bool(token and instance),
         'instanceUrl': instance or ''
+    })
+
+
+# ─── Email Series Generation ───
+
+EMAIL_SERIES = {
+    'nurture': {
+        'name': 'Nurture Series',
+        'description': 'Sell the value of your industry with urgent (but not aggressive) CTAs.',
+        'wait_days': 5,
+        'emails': [
+            {'key': 'nurture_1', 'name': 'Nurture Email 1 — Industry Value', 'order': 1},
+            {'key': 'nurture_2', 'name': 'Nurture Email 2 — Social Proof', 'order': 2},
+            {'key': 'nurture_3', 'name': 'Nurture Email 3 — Urgency & Action', 'order': 3},
+        ]
+    },
+    'welcome': {
+        'name': 'Welcome Series',
+        'description': 'Onboard new customers with a warm introduction to your services.',
+        'wait_days': 1,
+        'emails': [
+            {'key': 'welcome_1', 'name': 'Welcome Email 1 — Welcome', 'order': 1},
+            {'key': 'welcome_2', 'name': 'Welcome Email 2 — Get Started', 'order': 2},
+            {'key': 'welcome_3', 'name': 'Welcome Email 3 — Go Deeper', 'order': 3},
+        ]
+    }
+}
+
+
+# ── Industry-specific email copy templates ──
+# Each key maps to: { nurture: [3 dicts], welcome: [3 dicts] }
+# Fields per email: subject, preheader, heading, body, cta_text
+
+def _nurture_copy_general(bn, ct):
+    """General / non-industry nurture copy."""
+    return [
+        {
+            'subject': f'Discover What {bn} Can Do for You',
+            'preheader': f'See how {bn} helps {ct} like you succeed.',
+            'heading': f'Built for {ct.title()} Like You',
+            'body': f'{bn} was created to solve real problems and deliver real results. Whether you\'re looking for better tools, smarter solutions, or a partner who gets it — we\'re here to help you move forward with confidence.',
+            'cta_text': 'Learn More',
+        },
+        {
+            'subject': f'Why {ct.title()} Trust {bn}',
+            'preheader': 'Real results from real people.',
+            'heading': 'See the Difference',
+            'body': f'Across the board, {ct} are choosing {bn} for the reliability, quality, and service they can count on. Don\'t just take our word for it — the results speak for themselves.',
+            'cta_text': 'See Success Stories',
+        },
+        {
+            'subject': f'Ready to Get Started with {bn}?',
+            'preheader': f'Take the next step — it only takes a minute.',
+            'heading': 'Your Next Step Starts Here',
+            'body': f'You\'ve seen what {bn} can do. Now it\'s time to experience it for yourself. Getting started is simple, and our team is ready to make sure you hit the ground running.',
+            'cta_text': 'Get Started Now',
+        },
+    ]
+
+def _welcome_copy_general(bn, ct):
+    """General / non-industry welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}!',
+            'preheader': f'We\'re glad you\'re here.',
+            'heading': f'Welcome Aboard!',
+            'body': f'Thank you for choosing {bn}. We\'re excited to have you and committed to making your experience outstanding. Here\'s to a great partnership.',
+            'cta_text': 'Explore Your Account',
+        },
+        {
+            'subject': f'Get the Most Out of {bn}',
+            'preheader': 'Log in and see what\'s waiting for you.',
+            'heading': f'Your Account is Ready',
+            'body': f'Log into your account and discover everything {bn} has to offer. From helpful tools to personalized features, there\'s a lot to explore — and we\'re here to help every step of the way.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Go Further with {bn}',
+            'preheader': 'Take your experience to the next level.',
+            'heading': 'There\'s More to Discover',
+            'body': f'Now that you\'re settled in, it\'s time to explore the full range of what {bn} offers. Dive deeper into features, resources, and tools designed to help you get more done.',
+            'cta_text': 'Explore More',
+        },
+    ]
+
+def _nurture_copy_banking(bn, ct):
+    """Banking industry nurture copy (retail, commercial, community)."""
+    return [
+        {
+            'subject': f'Your Financial Future Starts with {bn}',
+            'preheader': f'See how smarter banking makes a difference for {ct}.',
+            'heading': f'Banking That Works for You',
+            'body': f'Managing your finances shouldn\'t be complicated. {bn} offers tools and services designed to simplify your banking, protect your money, and help you reach your goals — all with the personal attention you deserve.',
+            'cta_text': 'Explore Our Services',
+        },
+        {
+            'subject': f'How {ct.title()} Like You Are Getting Ahead',
+            'preheader': f'{bn} {ct} are building stronger financial futures.',
+            'heading': f'{ct.title()} Are Choosing {bn}',
+            'body': f'From competitive rates to intuitive digital tools, {ct} are finding that {bn} delivers the banking experience they\'ve been looking for. Join the growing number of people who trust us with their financial well-being.',
+            'cta_text': 'See What We Offer',
+        },
+        {
+            'subject': f'Don\'t Miss Out — Start Banking with {bn}',
+            'preheader': 'Your better banking experience is one step away.',
+            'heading': 'Take the Next Step Today',
+            'body': f'The right financial partner can make all the difference. With {bn}, you\'ll get the rates, security, and service that help you move forward. Open your account today and see why {ct} are making the switch.',
+            'cta_text': 'Open an Account',
+        },
+    ]
+
+def _welcome_copy_banking(bn, ct):
+    """Banking industry welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}!',
+            'preheader': f'Your new banking relationship starts today.',
+            'heading': f'Welcome to the {bn} Family!',
+            'body': f'Thank you for choosing {bn} as your financial partner. We\'re committed to providing you with secure, convenient banking and the personal service you deserve. We\'re glad to have you.',
+            'cta_text': 'Access Your Account',
+        },
+        {
+            'subject': f'Log In and Explore Your {bn} Account',
+            'preheader': 'Discover the tools and features waiting for you.',
+            'heading': f'Your Account Is Ready to Go',
+            'body': f'Log into your {bn} account and explore everything at your fingertips — from mobile banking and bill pay to savings tools and account alerts. We\'ve made it easy to manage your money on your terms.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Make the Most of Your {bn} Membership',
+            'preheader': 'There\'s even more to discover.',
+            'heading': 'Go Deeper with Your Finances',
+            'body': f'Now that you\'re set up, take advantage of everything {bn} has to offer. Explore our financial planning resources, set savings goals, and discover products designed to help {ct} like you build a stronger financial future.',
+            'cta_text': 'Explore Resources',
+        },
+    ]
+
+def _nurture_copy_insurance(bn, ct):
+    """Insurance industry nurture copy."""
+    return [
+        {
+            'subject': f'Protecting What Matters Most — {bn}',
+            'preheader': f'See how the right coverage brings peace of mind.',
+            'heading': f'Coverage You Can Count On',
+            'body': f'Life is unpredictable, but your coverage doesn\'t have to be. {bn} offers policies designed to protect {ct} from the unexpected — giving you the confidence to focus on what matters most.',
+            'cta_text': 'Explore Coverage',
+        },
+        {
+            'subject': f'Why {ct.title()} Choose {bn}',
+            'preheader': f'Protection backed by trust and expertise.',
+            'heading': f'Trusted by {ct.title()} Like You',
+            'body': f'{ct.title()} choose {bn} for the combination of comprehensive coverage, responsive service, and competitive rates. When it comes to protection, having the right partner makes all the difference.',
+            'cta_text': 'See Our Plans',
+        },
+        {
+            'subject': f'Don\'t Wait — Get Protected with {bn}',
+            'preheader': 'The best time to get covered is now.',
+            'heading': 'Secure Your Coverage Today',
+            'body': f'Every day without the right coverage is a risk you don\'t need to take. {bn} makes it easy to find the protection that fits your life — and our team is ready to help you get started.',
+            'cta_text': 'Get a Quote',
+        },
+    ]
+
+def _welcome_copy_insurance(bn, ct):
+    """Insurance industry welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}!',
+            'preheader': f'Your coverage is in good hands.',
+            'heading': f'Welcome, and Thank You!',
+            'body': f'Thank you for trusting {bn} with your coverage. We take that responsibility seriously and are committed to being here for you — whenever you need us. Welcome to the family.',
+            'cta_text': 'View Your Policy',
+        },
+        {
+            'subject': f'Log In and Review Your {bn} Policy',
+            'preheader': 'Get familiar with your coverage details.',
+            'heading': f'Your Policy Dashboard Is Ready',
+            'body': f'Log into your {bn} account to review your policy details, download your ID cards, and learn about the full range of benefits available to you. Managing your coverage has never been easier.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Get More from Your {bn} Coverage',
+            'preheader': 'Discover additional benefits and resources.',
+            'heading': 'There\'s More to Your Coverage',
+            'body': f'Beyond your core policy, {bn} offers resources to help {ct} stay protected and informed. Explore our claims support, risk prevention tips, and additional coverage options designed for your peace of mind.',
+            'cta_text': 'Explore Benefits',
+        },
+    ]
+
+def _nurture_copy_wealth(bn, ct):
+    """Wealth & asset management nurture copy."""
+    return [
+        {
+            'subject': f'Building a Stronger Financial Future — {bn}',
+            'preheader': f'Strategic guidance for {ct} who expect more.',
+            'heading': f'Your Wealth Deserves Expert Stewardship',
+            'body': f'Achieving your financial goals requires more than good intentions — it requires strategy, discipline, and the right partner. {bn} provides personalized guidance to help {ct} protect and grow what they\'ve built.',
+            'cta_text': 'Learn Our Approach',
+        },
+        {
+            'subject': f'How {ct.title()} Achieve Their Goals with {bn}',
+            'preheader': f'Results-driven strategies for lasting wealth.',
+            'heading': f'Trusted by {ct.title()} Who Demand More',
+            'body': f'{ct.title()} choose {bn} for the depth of expertise, personalized attention, and proven track record. Whether it\'s legacy planning, portfolio optimization, or risk management — we deliver results that matter.',
+            'cta_text': 'See Our Track Record',
+        },
+        {
+            'subject': f'Let\'s Build Your Financial Strategy — {bn}',
+            'preheader': 'Schedule your consultation today.',
+            'heading': 'Your Strategy Starts with a Conversation',
+            'body': f'Every great financial outcome starts with a plan. {bn} is ready to sit down with you, understand your goals, and build a tailored strategy that puts you on the path to long-term success.',
+            'cta_text': 'Schedule a Consultation',
+        },
+    ]
+
+def _welcome_copy_wealth(bn, ct):
+    """Wealth & asset management welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}',
+            'preheader': f'Your financial partnership begins today.',
+            'heading': f'Welcome to {bn}',
+            'body': f'Thank you for placing your trust in {bn}. We\'re honored to serve as your financial partner and committed to delivering the insight, attention, and results you expect.',
+            'cta_text': 'Access Your Portal',
+        },
+        {
+            'subject': f'Your {bn} Client Portal Is Ready',
+            'preheader': 'Log in to explore your personalized dashboard.',
+            'heading': f'Explore Your Client Dashboard',
+            'body': f'Your {bn} client portal gives you real-time visibility into your portfolio, performance reports, and direct communication with your advisory team. Log in to get started.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Deepen Your Partnership with {bn}',
+            'preheader': 'Explore our full suite of services.',
+            'heading': 'There\'s More We Can Do Together',
+            'body': f'Beyond portfolio management, {bn} offers comprehensive financial planning, estate strategy, tax optimization, and more. Let us know how we can help you take the next step in your financial journey.',
+            'cta_text': 'Explore Services',
+        },
+    ]
+
+def _nurture_copy_lending(bn, ct):
+    """Lending & mortgage nurture copy."""
+    return [
+        {
+            'subject': f'Your Path to Homeownership Starts Here — {bn}',
+            'preheader': f'Guidance for {ct} at every step of the journey.',
+            'heading': f'Making Your Goals Achievable',
+            'body': f'Whether you\'re buying your first home or refinancing, {bn} is here to simplify the process. We offer competitive rates, transparent terms, and the personal guidance that helps {ct} move forward with confidence.',
+            'cta_text': 'See Today\'s Rates',
+        },
+        {
+            'subject': f'How {ct.title()} Are Reaching Their Goals with {bn}',
+            'preheader': f'Real stories from {ct} who found the right fit.',
+            'heading': f'{ct.title()} Trust {bn}',
+            'body': f'{ct.title()} choose {bn} because we make the lending process clear, fair, and fast. From pre-approval to closing day, our team works to make sure you\'re supported every step of the way.',
+            'cta_text': 'Hear Their Stories',
+        },
+        {
+            'subject': f'Ready to Make Your Move? {bn} Is Here to Help',
+            'preheader': 'Get pre-approved in minutes — not days.',
+            'heading': 'Your Next Chapter Is Waiting',
+            'body': f'Don\'t let the lending process hold you back. With {bn}, getting pre-approved is fast and straightforward. Take the first step today and bring your goals within reach.',
+            'cta_text': 'Get Pre-Approved',
+        },
+    ]
+
+def _welcome_copy_lending(bn, ct):
+    """Lending & mortgage welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}!',
+            'preheader': f'Your lending journey is in great hands.',
+            'heading': f'Welcome, and Congratulations!',
+            'body': f'Thank you for choosing {bn}. We know this is a big step, and we\'re committed to making every part of the process as smooth and transparent as possible. Welcome aboard.',
+            'cta_text': 'View Your Loan',
+        },
+        {
+            'subject': f'Log In to Your {bn} Account',
+            'preheader': 'Track your loan and manage your payments.',
+            'heading': f'Your Loan Dashboard Is Ready',
+            'body': f'Log into your {bn} account to view your loan details, set up automatic payments, and access helpful resources. Managing your loan should be simple — and with us, it is.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Get More from Your {bn} Relationship',
+            'preheader': 'Explore tools and resources for your financial journey.',
+            'heading': 'We\'re Here Beyond the Closing Table',
+            'body': f'{bn} is more than a lender — we\'re a long-term partner. Explore our homeowner resources, financial planning tools, and refinancing options designed to help {ct} thrive.',
+            'cta_text': 'Explore Resources',
+        },
+    ]
+
+def _nurture_copy_payments(bn, ct):
+    """Payments & fintech nurture copy."""
+    return [
+        {
+            'subject': f'Faster, Smarter Payments — {bn}',
+            'preheader': f'See how modern payments technology works for {ct}.',
+            'heading': f'Payments, Reimagined',
+            'body': f'In a world that moves fast, your payments should too. {bn} delivers seamless, secure transaction technology that helps {ct} send, receive, and manage money with zero friction.',
+            'cta_text': 'See How It Works',
+        },
+        {
+            'subject': f'Why {ct.title()} Are Switching to {bn}',
+            'preheader': 'Speed, security, and simplicity — all in one.',
+            'heading': f'The Smarter Way to Pay',
+            'body': f'{ct.title()} are moving to {bn} for the speed, reliability, and modern experience they need. From real-time transactions to intelligent analytics, we\'re built for the way business moves today.',
+            'cta_text': 'Compare Features',
+        },
+        {
+            'subject': f'Ready to Upgrade Your Payments? Try {bn}',
+            'preheader': 'Get set up in minutes — no headaches.',
+            'heading': 'Start Moving Money Smarter',
+            'body': f'Outdated payment processes cost you time and money. {bn} makes it easy to get started with modern payment technology — fast setup, transparent pricing, and support when you need it.',
+            'cta_text': 'Get Started',
+        },
+    ]
+
+def _welcome_copy_payments(bn, ct):
+    """Payments & fintech welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn}!',
+            'preheader': f'Your new payments experience starts now.',
+            'heading': f'Welcome to {bn}!',
+            'body': f'You\'re all set. {bn} is here to help you move money faster, smarter, and more securely. We\'re excited to have you on board and ready to help you get the most out of our platform.',
+            'cta_text': 'Go to Dashboard',
+        },
+        {
+            'subject': f'Your {bn} Account Is Live',
+            'preheader': 'Log in and explore your new dashboard.',
+            'heading': f'Explore Your Dashboard',
+            'body': f'Your {bn} dashboard gives you full visibility into your transactions, analytics, and account settings. Log in now to send your first payment, connect your accounts, and see what\'s possible.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Unlock the Full Power of {bn}',
+            'preheader': 'Advanced features and integrations await.',
+            'heading': 'There\'s Even More to Explore',
+            'body': f'Beyond basic transactions, {bn} offers powerful integrations, real-time analytics, and automation tools that help {ct} save time and scale. Discover what\'s next.',
+            'cta_text': 'Explore Features',
+        },
+    ]
+
+# Map industry groups to their copy generators
+INDUSTRY_COPY_MAP = {
+    'General':                  (_nurture_copy_general,   _welcome_copy_general),
+    'Banking':                  (_nurture_copy_banking,   _welcome_copy_banking),
+    'Insurance':                (_nurture_copy_insurance, _welcome_copy_insurance),
+    'Wealth & Asset Management':(_nurture_copy_wealth,    _welcome_copy_wealth),
+    'Lending':                  (_nurture_copy_lending,   _welcome_copy_lending),
+    'Payments':                 (_nurture_copy_payments,  _welcome_copy_payments),
+}
+
+
+def generate_series_copy(series_key, config):
+    """Generate all email copy for a series, based on industry tone."""
+    brand_name = config.get('brandName', 'Brand')
+    tone_key = config.get('tone', {}).get('key', 'general')
+    tone = INDUSTRY_TONES.get(tone_key, INDUSTRY_TONES['general'])
+    customer_term = tone['customer_term']
+    industry_group = tone['industry']
+
+    nurture_fn, welcome_fn = INDUSTRY_COPY_MAP.get(
+        industry_group, (_nurture_copy_general, _welcome_copy_general)
+    )
+
+    if series_key == 'nurture':
+        copies = nurture_fn(brand_name, customer_term)
+    else:
+        copies = welcome_fn(brand_name, customer_term)
+
+    series = EMAIL_SERIES[series_key]
+    results = []
+    for i, email_def in enumerate(series['emails']):
+        copy = copies[i] if i < len(copies) else copies[-1]
+        results.append({
+            'key': email_def['key'],
+            'name': email_def['name'],
+            'order': email_def['order'],
+            'subject': copy['subject'],
+            'preheader': copy.get('preheader', ''),
+            'heading': copy.get('heading', ''),
+            'body': copy['body'],
+            'cta_text': copy.get('cta_text', 'Learn More'),
+            'cta_url': '#',
+        })
+    return results
+
+
+def render_email_html(copy_data, config, logo_url='', hero_url=''):
+    """Render a single email to full HTML, given copy fields + brand config + images."""
+    colors = config.get('colors', [])
+    primary = colors[0]['hex'] if len(colors) > 0 else '#0176d3'
+    secondary = colors[1]['hex'] if len(colors) > 1 else '#032d60'
+    brand_name = config.get('brandName', 'Brand')
+
+    primary_rgb = hex_to_rgb(primary)
+    btn_text_color = '#ffffff' if primary_rgb and brightness(*primary_rgb) < 128 else '#032d60'
+
+    font_family = config.get('typography', {}).get('bodyFont', 'Arial')
+    btn_radius = config.get('buttonStyle', {}).get('borderRadius', 4)
+
+    subject = copy_data.get('subject', '')
+    preheader = copy_data.get('preheader', '')
+    heading = copy_data.get('heading', '')
+    body_text = copy_data.get('body', '')
+    cta_text = copy_data.get('cta_text', 'Learn More')
+    cta_url = copy_data.get('cta_url', '#')
+
+    logo_section = ''
+    if logo_url:
+        logo_section = f'<img src="{logo_url}" alt="{brand_name}" style="max-width:200px;max-height:60px;display:block;margin:0 auto;">'
+
+    hero_section = ''
+    if hero_url:
+        hero_section = f'''
+        <tr>
+          <td style="padding:0;">
+            <img src="{hero_url}" alt="{brand_name}" style="width:100%;max-width:600px;display:block;height:auto;">
+          </td>
+        </tr>'''
+
+    email_html = f'''<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{subject}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:{font_family},Arial,Helvetica,sans-serif;">
+<div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:#f4f4f4;">{preheader}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f4;">
+<tr>
+<td align="center" style="padding:20px 10px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+  <tr>
+    <td style="background-color:{primary};padding:24px 40px;text-align:center;">
+      {logo_section}
+    </td>
+  </tr>
+  {hero_section}
+  <tr>
+    <td style="padding:40px 40px 20px 40px;">
+      <h1 style="font-family:{font_family},Arial,sans-serif;color:{secondary};font-size:28px;font-weight:700;margin:0 0 16px 0;line-height:1.3;">
+        {heading}
+      </h1>
+      <p style="font-family:{font_family},Arial,sans-serif;color:#333333;font-size:16px;line-height:1.6;margin:0 0 24px 0;">
+        {body_text}
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="background-color:{primary};border-radius:{btn_radius}px;">
+          <a href="{cta_url}" style="display:inline-block;padding:14px 32px;font-family:{font_family},Arial,sans-serif;font-size:16px;font-weight:600;color:{btn_text_color};text-decoration:none;border-radius:{btn_radius}px;">
+            {cta_text}
+          </a>
+        </td>
+      </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="background-color:#f8f8f8;padding:24px 40px;border-top:1px solid #e5e5e5;">
+      <p style="font-family:{font_family},Arial,sans-serif;color:#999999;font-size:12px;line-height:1.5;margin:0;text-align:center;">
+        &copy; {brand_name}. All rights reserved.<br>
+        <a href="%%unsub_center_url%%" style="color:#999999;">Unsubscribe</a> |
+        <a href="%%profile_center_url%%" style="color:#999999;">Preferences</a>
+      </p>
+      <p style="font-family:{font_family},Arial,sans-serif;color:#cccccc;font-size:11px;text-align:center;margin:8px 0 0 0;">
+        %%Member_Busname%% | %%Member_Addr%% %%Member_City%%, %%Member_State%% %%Member_PostalCode%%
+      </p>
+    </td>
+  </tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>'''
+
+    return email_html
+
+
+@app.route('/api/email-series', methods=['GET'])
+def get_email_series_info():
+    """Return available email series metadata for the frontend."""
+    return jsonify(EMAIL_SERIES)
+
+
+@app.route('/api/email-series-copy', methods=['POST'])
+def get_email_series_copy():
+    """Generate industry-specific copy for selected email series."""
+    data = request.json or {}
+    config = data.get('config', {})
+    series_keys = data.get('series', ['nurture', 'welcome'])
+
+    result = {}
+    for sk in series_keys:
+        if sk in EMAIL_SERIES:
+            result[sk] = generate_series_copy(sk, config)
+
+    return jsonify(result)
+
+
+@app.route('/api/email-preview', methods=['POST'])
+def get_email_preview():
+    """Render a single email preview from editable copy + brand config."""
+    data = request.json or {}
+    copy_data = data.get('copy', {})
+    config = data.get('config', {})
+    logo_url = data.get('logoUrl', '')
+    hero_url = data.get('heroUrl', '')
+
+    html = render_email_html(copy_data, config, logo_url, hero_url)
+    return jsonify({'html': html})
+
+
+# ─── Flow Metadata XML Generation ───
+
+def generate_flow_xml(series_key, email_content_keys, config, workspace_name='Default_Content_Workspace',
+                      segment_id='', sender_id='', subscription_id='', channel_type_id=''):
+    """Generate a segment-triggered MCA flow XML with sendEmailMessage actions and wait elements."""
+    series = EMAIL_SERIES.get(series_key)
+    if not series:
+        return None
+
+    brand_name = config.get('brandName', 'Brand')
+    series_name = series['name']
+    wait_days = series['wait_days']
+    flow_label = f"{brand_name} {series_name}"
+    flow_api_name = re.sub(r'[^A-Za-z0-9_]', '_', flow_label).replace('__', '_')
+
+    # Build action calls and waits
+    action_calls_xml = ''
+    waits_xml = ''
+    num_emails = min(len(email_content_keys), len(series['emails']))
+
+    for i in range(num_emails):
+        email_key = email_content_keys[i]
+        email_def = series['emails'][i]
+        action_name = f"Send_Email_{i + 1}"
+        y_offset = 278 + (i * 240)
+
+        # Determine next element connector
+        if i < num_emails - 1:
+            wait_name = f"Wait_After_Email_{i + 1}"
+            next_ref = f"<connector><targetReference>{wait_name}</targetReference></connector>"
+        else:
+            next_ref = ''  # Last email has no connector (flow ends)
+
+        # Build sender params
+        sender_params = ''
+        if sender_id:
+            sender_params = f'''
+        <inputParameters>
+            <name>senderId</name>
+            <value><stringValue>{sender_id}</stringValue></value>
+        </inputParameters>'''
+
+        # Build subscription params
+        sub_params = ''
+        if subscription_id:
+            sub_params = f'''
+        <inputParameters>
+            <name>communicationSubscriptionId</name>
+            <value><stringValue>{subscription_id}</stringValue></value>
+        </inputParameters>'''
+        if channel_type_id:
+            sub_params += f'''
+        <inputParameters>
+            <name>commSubscriptionChannelTypeId</name>
+            <value><stringValue>{channel_type_id}</stringValue></value>
+        </inputParameters>'''
+
+        content_id = f"marketing--{workspace_name}.sfdc_cms__email--{email_key}"
+
+        action_calls_xml += f'''
+    <actionCalls>
+        <name>{action_name}</name>
+        <label>Send {series_name} Email {i + 1}</label>
+        <locationX>176</locationX>
+        <locationY>{y_offset}</locationY>
+        <actionName>sendEmailMessage</actionName>
+        <actionType>sendEmailMessage</actionType>
+        {next_ref}
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>contentId</name>
+            <value>
+                <stringValue>{content_id}</stringValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>isTemplate</name>
+            <value><booleanValue>false</booleanValue></value>
+        </inputParameters>{sender_params}
+        <inputParameters>
+            <name>clickTracking</name>
+            <value><booleanValue>true</booleanValue></value>
+        </inputParameters>
+        <inputParameters>
+            <name>openTracking</name>
+            <value><booleanValue>true</booleanValue></value>
+        </inputParameters>{sub_params}
+        <inputParameters><name>outreachSourceCodeId</name></inputParameters>
+        <inputParameters><name>selectedOfferIds</name></inputParameters>
+        <nameSegment>sendEmailMessage</nameSegment>
+        <offset>0</offset>
+    </actionCalls>'''
+
+        # Add wait element between emails (not after the last one)
+        if i < num_emails - 1:
+            wait_name = f"Wait_After_Email_{i + 1}"
+            next_action = f"Send_Email_{i + 2}"
+            wait_y = y_offset + 120
+
+            waits_xml += f'''
+    <waits>
+        <name>{wait_name}</name>
+        <label>Wait {wait_days} Day{"s" if wait_days != 1 else ""}</label>
+        <locationX>176</locationX>
+        <locationY>{wait_y}</locationY>
+        <elementSubtype>WaitForAmountOfTime</elementSubtype>
+        <connector>
+            <targetReference>{next_action}</targetReference>
+        </connector>
+        <defaultConnector>
+            <targetReference>{next_action}</targetReference>
+        </defaultConnector>
+        <waitDurationValue>
+            <numberValue>{wait_days}.0</numberValue>
+        </waitDurationValue>
+        <waitDurationUnit>Days</waitDurationUnit>
+    </waits>'''
+
+    # Segment element
+    segment_xml = f'<segment>{segment_id}</segment>' if segment_id else '<segment></segment>'
+
+    flow_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">{action_calls_xml}{waits_xml}
+    <apiVersion>66.0</apiVersion>
+    <areMetricsLoggedToDataCloud>true</areMetricsLoggedToDataCloud>
+    <dataSpace>default</dataSpace>
+    <environments>Default</environments>
+    <interviewLabel>{flow_label} {{!$Flow.CurrentDateTime}}</interviewLabel>
+    <label>{flow_label}</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value><stringValue>LightningFlowBuilder</stringValue></value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value><stringValue>AUTO_LAYOUT_CANVAS</stringValue></value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value><stringValue>LightningFlowBuilder</stringValue></value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Send_Email_1</targetReference>
+        </connector>
+        <dataGraph>Marketing_Content_Personalizat</dataGraph>
+        <object>UnifiedssotIndividualSub1__dlm</object>
+        <publishSegment>true</publishSegment>
+        <schedule>
+            <dayOfMonthToRun>0</dayOfMonthToRun>
+            <frequency>OnActivate</frequency>
+            <frequencyNumber>0</frequencyNumber>
+        </schedule>
+        {segment_xml}
+        <triggerType>Segment</triggerType>
+    </start>
+    <status>Draft</status>
+    <timeZoneSidKey>America/Los_Angeles</timeZoneSidKey>
+</Flow>'''
+
+    return {
+        'xml': flow_xml,
+        'flowApiName': flow_api_name,
+        'flowLabel': flow_label
+    }
+
+
+@app.route('/api/generate-flow-xml', methods=['POST'])
+def api_generate_flow_xml():
+    """Generate flow XML for preview/download."""
+    data = request.json or {}
+    series_key = data.get('series', 'nurture')
+    email_content_keys = data.get('emailContentKeys', [])
+    config = data.get('config', {})
+    workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
+    segment_id = data.get('segmentId', '')
+    sender_id = data.get('senderId', '')
+    subscription_id = data.get('subscriptionId', '')
+    channel_type_id = data.get('channelTypeId', '')
+
+    if series_key not in EMAIL_SERIES:
+        return jsonify({'error': f'Invalid series: {series_key}'}), 400
+
+    result = generate_flow_xml(
+        series_key, email_content_keys, config,
+        workspace_name, segment_id, sender_id, subscription_id, channel_type_id
+    )
+
+    if not result:
+        return jsonify({'error': 'Failed to generate flow XML'}), 500
+
+    return jsonify(result)
+
+
+# ─── Token Refresh Helper ───
+
+def try_refresh_token():
+    """Attempt to refresh the Salesforce access token using the stored refresh token.
+    Returns True if successful, False otherwise."""
+    refresh = session.get('sf_refresh_token', '')
+    if not refresh or not SF_CLIENT_ID or not SF_CLIENT_SECRET:
+        return False
+
+    for host in ['login.salesforce.com', 'test.salesforce.com']:
+        try:
+            resp = requests.post(f'https://{host}/services/oauth2/token', data={
+                'grant_type': 'refresh_token',
+                'client_id': SF_CLIENT_ID,
+                'client_secret': SF_CLIENT_SECRET,
+                'refresh_token': refresh
+            }, timeout=15)
+            if resp.ok:
+                data = resp.json()
+                session['sf_access_token'] = data['access_token']
+                if 'instance_url' in data:
+                    session['sf_instance_url'] = data['instance_url']
+                return True
+        except Exception:
+            continue
+    return False
+
+
+# ─── CMS Email Upload + Deploy ───
+
+@app.route('/api/sf/consent-config', methods=['GET'])
+def get_consent_config():
+    """Query org for available senders, subscriptions, channels, and segments."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    result = {}
+
+    # OrgWideEmailAddress (senders)
+    try:
+        resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
+                       quote("SELECT Id, Address, DisplayName FROM OrgWideEmailAddress ORDER BY DisplayName"),
+                       token, instance)
+        result['senders'] = [{'id': r['Id'], 'label': f"{r['DisplayName']} <{r['Address']}>"} for r in resp.get('records', [])]
+    except:
+        result['senders'] = []
+
+    # CommSubscription (communication subscriptions)
+    try:
+        resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
+                       quote("SELECT Id, Name FROM CommSubscription ORDER BY Name"),
+                       token, instance)
+        result['subscriptions'] = [{'id': r['Id'], 'name': r['Name']} for r in resp.get('records', [])]
+    except:
+        result['subscriptions'] = []
+
+    # CommSubscriptionChannelType (channel types)
+    try:
+        resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
+                       quote("SELECT Id, Name, CommunicationSubscriptionId FROM CommSubscriptionChannelType ORDER BY Name"),
+                       token, instance)
+        result['channelTypes'] = [{'id': r['Id'], 'name': r['Name'], 'subscriptionId': r['CommunicationSubscriptionId']} for r in resp.get('records', [])]
+    except:
+        result['channelTypes'] = []
+
+    # MarketSegment (available segments)
+    try:
+        resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
+                       quote("SELECT Id, Name, Status FROM MarketSegment WHERE Status = 'Published' ORDER BY Name"),
+                       token, instance)
+        result['segments'] = [{'id': r['Id'], 'name': r['Name']} for r in resp.get('records', [])]
+    except:
+        result['segments'] = []
+
+    return jsonify(result)
+
+
+def build_cms_email_content_json(email_html, subject, preheader):
+    """Build the CMS email content.json structure for sfdc_cms__email."""
+    return {
+        "type": "sfdc_cms__email",
+        "content": {
+            "sfdc_cms:block": {
+                "value": {
+                    "lightning:dataProviders": [
+                        {
+                            "name": "Marketing_Content_Personalizat",
+                            "type": "dataGraph"
+                        }
+                    ],
+                    "sfdc_cms:block": {
+                        "type": "sfdc_cms/rootContentBlock",
+                        "value": {
+                            "subject": subject,
+                            "preheader": preheader,
+                            "sfdc_cms:block": [
+                                {
+                                    "type": "lightning/section",
+                                    "value": {
+                                        "sfdc_cms:block": [
+                                            {
+                                                "type": "lightning/column",
+                                                "value": {
+                                                    "sfdc_cms:block": [
+                                                        {
+                                                            "type": "lightning/html",
+                                                            "value": {
+                                                                "rawHtml": email_html
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+@app.route('/api/sf/deploy-email-series', methods=['POST'])
+def deploy_email_series():
+    """Deploy email series to Salesforce: upload emails to CMS, publish, create flow."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    series_key = data.get('series', '')
+    emails = data.get('emails', [])  # list of {copy, logoUrl, heroUrl}
+    config = data.get('config', {})
+    workspace_id = data.get('workspaceId', '')
+    workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
+    segment_id = data.get('segmentId', '')
+    sender_id = data.get('senderId', '')
+    subscription_id = data.get('subscriptionId', '')
+    channel_type_id = data.get('channelTypeId', '')
+    create_flow = data.get('createFlow', True)
+
+    if series_key not in EMAIL_SERIES:
+        return jsonify({'error': f'Invalid series: {series_key}'}), 400
+    if not workspace_id:
+        return jsonify({'error': 'No workspace selected'}), 400
+    if not emails:
+        return jsonify({'error': 'No emails provided'}), 400
+
+    brand_name = config.get('brandName', 'Brand')
+    series = EMAIL_SERIES[series_key]
+    created_emails = []
+    errors = []
+
+    # Step 1: Upload each email to CMS
+    for i, email_data in enumerate(emails):
+        copy_data = email_data.get('copy', {})
+        logo_url = email_data.get('logoUrl', '')
+        hero_url = email_data.get('heroUrl', '')
+
+        # Render the email HTML
+        email_html = render_email_html(copy_data, config, logo_url, hero_url)
+
+        # Build CMS content JSON
+        content_json = build_cms_email_content_json(
+            email_html, copy_data.get('subject', ''), copy_data.get('preheader', '')
+        )
+
+        email_name = f"{brand_name}_{series['name'].replace(' ', '_')}_Email_{i + 1}"
+        email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
+
+        try:
+            # Create CMS content via connect API
+            import io
+            boundary = f"----FormBoundary{uuid.uuid4().hex[:16]}"
+
+            # Build multipart body
+            input_param = json.dumps({
+                "contentSpaceOrFolderId": workspace_id,
+                "contentType": "sfdc_cms__email",
+                "title": email_title
+            })
+            content_data = json.dumps(content_json)
+
+            body_parts = []
+            body_parts.append(f'--{boundary}')
+            body_parts.append('Content-Disposition: form-data; name="ManagedContentInputParam"')
+            body_parts.append('Content-Type: application/json')
+            body_parts.append('')
+            body_parts.append(input_param)
+            body_parts.append(f'--{boundary}')
+            body_parts.append('Content-Disposition: form-data; name="contentData"; filename="content.json"')
+            body_parts.append('Content-Type: application/json')
+            body_parts.append('')
+            body_parts.append(content_data)
+            body_parts.append(f'--{boundary}--')
+
+            multipart_body = '\r\n'.join(body_parts)
+
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': f'multipart/form-data; boundary={boundary}'
+            }
+
+            resp = requests.post(
+                f"{instance}/services/data/v66.0/connect/cms/contents",
+                headers=headers,
+                data=multipart_body.encode('utf-8'),
+                timeout=30
+            )
+
+            # Auto-refresh on 401 and retry once
+            if resp.status_code == 401 and try_refresh_token():
+                token = session.get('sf_access_token')
+                headers['Authorization'] = f'Bearer {token}'
+                resp = requests.post(
+                    f"{instance}/services/data/v66.0/connect/cms/contents",
+                    headers=headers,
+                    data=multipart_body.encode('utf-8'),
+                    timeout=30
+                )
+
+            if resp.status_code in (200, 201):
+                result = resp.json()
+                content_id = result.get('contentId', result.get('id', ''))
+                content_key = result.get('contentKey', result.get('contentUrlName', email_name))
+
+                created_emails.append({
+                    'name': email_title,
+                    'contentId': content_id,
+                    'contentKey': content_key,
+                    'order': i + 1
+                })
+
+                # Step 2: Publish the email
+                try:
+                    pub_resp = requests.post(
+                        f"{instance}/services/data/v66.0/connect/cms/contents/{content_id}/publish",
+                        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                        json={},
+                        timeout=15
+                    )
+                except Exception as pe:
+                    errors.append(f"Publish failed for email {i + 1}: {str(pe)[:100]}")
+            else:
+                errors.append(f"Email {i + 1} upload failed: {resp.status_code} - {resp.text[:200]}")
+        except Exception as e:
+            errors.append(f"Email {i + 1}: {str(e)[:150]}")
+
+    # Step 3: Create the flow if requested and we have emails
+    flow_result = None
+    if create_flow and len(created_emails) > 0:
+        email_content_keys = [e['contentKey'] for e in created_emails]
+        flow_data = generate_flow_xml(
+            series_key, email_content_keys, config,
+            workspace_name, segment_id, sender_id, subscription_id, channel_type_id
+        )
+
+        if flow_data:
+            try:
+                # Deploy flow via Tooling API
+                flow_xml = flow_data['xml']
+                flow_api_name = flow_data['flowApiName']
+
+                tooling_resp = requests.post(
+                    f"{instance}/services/data/v66.0/tooling/sobjects/Flow",
+                    headers={
+                        'Authorization': f'Bearer {token}',
+                        'Content-Type': 'application/json'
+                    },
+                    json={
+                        'FullName': flow_api_name,
+                        'Metadata': {
+                            'label': flow_data['flowLabel'],
+                            'processType': 'AutoLaunchedFlow',
+                            'status': 'Draft'
+                        },
+                        'Body': flow_xml
+                    },
+                    timeout=30
+                )
+
+                if tooling_resp.status_code in (200, 201):
+                    tr = tooling_resp.json()
+                    flow_result = {
+                        'id': tr.get('id', ''),
+                        'name': flow_data['flowLabel'],
+                        'apiName': flow_api_name,
+                        'status': 'Draft'
+                    }
+                else:
+                    errors.append(f"Flow creation failed: {tooling_resp.status_code} - {tooling_resp.text[:200]}")
+                    # Still return the XML so user can deploy manually
+                    flow_result = {
+                        'xml': flow_xml,
+                        'name': flow_data['flowLabel'],
+                        'apiName': flow_api_name,
+                        'status': 'NotDeployed',
+                        'error': f"API returned {tooling_resp.status_code}"
+                    }
+            except Exception as fe:
+                errors.append(f"Flow deploy: {str(fe)[:150]}")
+                flow_result = {
+                    'xml': flow_data['xml'] if flow_data else '',
+                    'name': flow_data['flowLabel'] if flow_data else '',
+                    'status': 'NotDeployed',
+                    'error': str(fe)[:150]
+                }
+
+    return jsonify({
+        'success': len(created_emails) > 0,
+        'emails': created_emails,
+        'flow': flow_result,
+        'errors': errors,
+        'totalCreated': len(created_emails)
     })
 
 
