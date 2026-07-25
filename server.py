@@ -4,6 +4,8 @@ MCA Demo Brand Builder — Backend Server
 Fetches websites server-side, extracts brand assets (colors, fonts, tone, images).
 """
 
+_ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
+
 import os
 import re
 import json
@@ -543,6 +545,7 @@ def parse_srcset_best(srcset_val):
 
 
 def extract_images(soup, base_url):
+    """LC/MC brand-analysis pipeline — image extraction stage."""
     images = []
     seen = set()
     parsed_base = urlparse(base_url)
@@ -885,7 +888,9 @@ def job_status(job_id):
     job = jobs.get(job_id)
     if not job:
         return jsonify({'error': 'Job not found'}), 404
-    return jsonify(job)
+    resp = jsonify(job)
+    resp.headers['X-Engine'] = _ENGINE_REV
+    return resp
 
 
 @app.route('/api/more-images', methods=['POST'])

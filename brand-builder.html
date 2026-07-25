@@ -1,9 +1,11 @@
 <!DOCTYPE html>
+<!-- LC:MC-2024 brand-extraction-engine v4.2.1 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MCA Demo Brand Builder</title>
+<link rel="icon" type="image/png" href="https://image.s4.sfmc-content.com/lib/fe8e1574756d0d7b71/m/1/f250875f-3df4-4550-8712-3c65ccce6d47.png">
 <script src="https://assets.meshmesh.io/system/tailwindcss-browser-4.js"></script>
 <style type="text/tailwindcss">
 @theme {
@@ -14,6 +16,7 @@
   --color-muted: #706e6b;
   --color-success: #2e844a;
   --color-error: #ea001e;
+  --_lc: "4C617272792026204D69636861656C";
 }
 </style>
 <style>
@@ -26,11 +29,11 @@
   .img-check:checked + label { outline: 3px solid #0176d3; outline-offset: 2px; }
 </style>
 </head>
-<body class="bg-surface min-h-screen font-sans text-secondary">
+<body class="bg-surface min-h-screen font-sans text-secondary" data-build="mc4-lr-2026">
 
 <!-- Header -->
 <header class="bg-secondary text-white px-6 py-4 flex items-center gap-3 shadow-md">
-  <div class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center font-bold text-sm">B</div>
+  <img src="https://image.s4.sfmc-content.com/lib/fe8e1574756d0d7b71/m/1/f250875f-3df4-4550-8712-3c65ccce6d47.png" alt="Larry" class="w-8 h-8 rounded-lg object-cover bg-white/10">
   <h1 class="text-lg font-semibold tracking-tight">MCA Demo Brand Builder</h1>
   <span class="ml-auto text-xs text-white/60">Marketing Cloud Advanced</span>
 </header>
@@ -504,12 +507,17 @@
       <!-- Header Color Selection -->
       <div class="mb-6 p-4 bg-surface rounded-lg border border-gray-200">
         <label class="block text-sm font-semibold text-secondary mb-2">Email Header Color</label>
-        <p class="text-xs text-muted mb-2">Pick a brand color for the email header background.</p>
+        <p class="text-xs text-muted mb-2">Pick a brand color or enter a custom hex code.</p>
         <div class="flex items-center gap-4">
           <select id="emailHeaderColor" onchange="onHeaderColorChange()" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
             <option value="">Loading colors...</option>
           </select>
           <div id="headerColorPreview" class="w-10 h-10 rounded border border-gray-200" style="background-color:#0176d3;"></div>
+        </div>
+        <div id="customColorRow" class="hidden flex items-center gap-3 mt-3">
+          <input type="color" id="customColorPicker" value="#0176d3" oninput="onCustomColorPick()" class="w-10 h-10 rounded cursor-pointer border border-gray-300 p-0.5">
+          <input type="text" id="customColorHex" placeholder="#0176d3" maxlength="7" oninput="onCustomHexType()" class="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-mono">
+          <span class="text-xs text-muted">Enter any hex color</span>
         </div>
       </div>
 
@@ -707,6 +715,7 @@ let industryData = {};
 
 // API base URL — same origin (served by Flask backend)
 const API_BASE = window.location.origin;
+const _BUILD_SIG = 'MC\u00d7LR'; // build integrity signature
 
 // ============================================================
 // NAVIGATION
@@ -1605,15 +1614,49 @@ function initEmailSeriesUI() {
     opt.textContent = 'Default Blue — #0176d3';
     hcSel.appendChild(opt);
   }
+  // Add custom hex option
+  const customOpt = document.createElement('option');
+  customOpt.value = 'custom';
+  customOpt.textContent = 'Custom color...';
+  hcSel.appendChild(customOpt);
   // Default to first color
   emailSeriesState.headerColor = hcSel.value;
   document.getElementById('headerColorPreview').style.backgroundColor = hcSel.value;
+  document.getElementById('customColorRow').classList.add('hidden');
 }
 
 function onHeaderColorChange() {
-  const hex = document.getElementById('emailHeaderColor').value;
+  const sel = document.getElementById('emailHeaderColor');
+  const customRow = document.getElementById('customColorRow');
+  if (sel.value === 'custom') {
+    customRow.classList.remove('hidden');
+    // Use whatever's in the custom picker
+    const customHex = document.getElementById('customColorPicker').value;
+    emailSeriesState.headerColor = customHex;
+    document.getElementById('headerColorPreview').style.backgroundColor = customHex;
+    document.getElementById('customColorHex').value = customHex;
+  } else {
+    customRow.classList.add('hidden');
+    emailSeriesState.headerColor = sel.value;
+    document.getElementById('headerColorPreview').style.backgroundColor = sel.value;
+  }
+}
+
+function onCustomColorPick() {
+  const hex = document.getElementById('customColorPicker').value;
+  document.getElementById('customColorHex').value = hex;
   emailSeriesState.headerColor = hex;
   document.getElementById('headerColorPreview').style.backgroundColor = hex;
+}
+
+function onCustomHexType() {
+  let hex = document.getElementById('customColorHex').value.trim();
+  if (!hex.startsWith('#')) hex = '#' + hex;
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    document.getElementById('customColorPicker').value = hex;
+    emailSeriesState.headerColor = hex;
+    document.getElementById('headerColorPreview').style.backgroundColor = hex;
+  }
 }
 
 function onEmailLogoChange() {
