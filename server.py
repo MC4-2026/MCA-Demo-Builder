@@ -1473,22 +1473,12 @@ def create_workspace():
     })
 
 
-@app.route('/api/sf/deploy', methods=['POST'])
-def deploy_brand():
-    """Deploy brand config + images to Salesforce CMS."""
-    token = session.get('sf_access_token')
-    instance = session.get('sf_instance_url')
-    if not token or not instance:
-        return jsonify({'error': 'Not connected to Salesforce'}), 401
-
-    data = request.json or {}
-    config = data.get('config', {})
-    workspace_id = data.get('workspaceId', '')
-    if not workspace_id:
-        return jsonify({'error': 'No workspace selected'}), 400
-
+def _deploy_brand_internal(token, instance, config, workspace_id):
+    """Core brand deploy logic: uploads images + creates brand + publishes.
+    Returns dict with brandId, contentIds, totalCreated, errors, success."""
     content_ids = []
     errors = []
+    brand_id = ''
 
     # 1. Upload images as sfdc_cms__image items
     images = config.get('images', [])
@@ -1525,9 +1515,11 @@ def deploy_brand():
             content_ids.append(brand_id)
         else:
             err_detail = brand_resp.text[:300]
-            return jsonify({'error': f'Brand creation failed: {err_detail}', 'imageErrors': errors}), 500
+            return {'success': False, 'brandId': '', 'contentIds': content_ids, 'totalCreated': len(content_ids),
+                    'errors': errors + [f'Brand creation failed: {err_detail}']}
     except Exception as e:
-        return jsonify({'error': f'Brand creation error: {str(e)[:200]}', 'imageErrors': errors}), 500
+        return {'success': False, 'brandId': '', 'contentIds': content_ids, 'totalCreated': len(content_ids),
+                'errors': errors + [f'Brand creation error: {str(e)[:200]}']}
 
     # 3. Publish all content
     if content_ids:
@@ -1540,13 +1532,33 @@ def deploy_brand():
         except Exception as e:
             errors.append(f'Publish error: {str(e)[:100]}')
 
-    return jsonify({
+    return {
         'success': True,
         'brandId': brand_id,
         'contentIds': content_ids,
         'totalCreated': len(content_ids),
         'errors': errors
-    })
+    }
+
+
+@app.route('/api/sf/deploy', methods=['POST'])
+def deploy_brand():
+    """Deploy brand config + images to Salesforce CMS."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    config = data.get('config', {})
+    workspace_id = data.get('workspaceId', '')
+    if not workspace_id:
+        return jsonify({'error': 'No workspace selected'}), 400
+
+    result = _deploy_brand_internal(token, instance, config, workspace_id)
+    if not result.get('success'):
+        return jsonify({'error': result['errors'][-1] if result['errors'] else 'Deploy failed', 'imageErrors': result['errors']}), 500
+    return jsonify(result)
 
 
 @app.route('/api/sf/status')
@@ -2425,17 +2437,11 @@ def build_cms_email_content_json(email_html, subject, preheader, title=''):
     }
 
 
-@app.route('/api/sf/deploy-email-series', methods=['POST'])
-def deploy_email_series():
-    """Deploy email series to Salesforce: upload emails to CMS, publish, create flow."""
-    token = session.get('sf_access_token')
-    instance = session.get('sf_instance_url')
-    if not token or not instance:
-        return jsonify({'error': 'Not connected to Salesforce'}), 401
-
-    data = request.json or {}
+def _deploy_email_series_internal(token, instance, data):
+    """Core email series deploy logic: uploads emails to CMS, publishes, creates flow + campaign.
+    Returns dict with emails, flow, campaign, errors, success, totalCreated."""
     series_key = data.get('series', '')
-    emails = data.get('emails', [])  # list of {copy, logoUrl, heroUrl}
+    emails = data.get('emails', [])
     config = data.get('config', {})
     workspace_id = data.get('workspaceId', '')
     workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
@@ -2448,11 +2454,11 @@ def deploy_email_series():
     header_color = data.get('headerColor', None)
 
     if series_key not in EMAIL_SERIES:
-        return jsonify({'error': f'Invalid series: {series_key}'}), 400
+        return {'success': False, 'errors': [f'Invalid series: {series_key}'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
     if not workspace_id:
-        return jsonify({'error': 'No workspace selected'}), 400
+        return {'success': False, 'errors': ['No workspace selected'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
     if not emails:
-        return jsonify({'error': 'No emails provided'}), 400
+        return {'success': False, 'errors': ['No emails provided'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
 
     brand_name = config.get('brandName', 'Brand')
     series = EMAIL_SERIES[series_key]
@@ -2465,19 +2471,16 @@ def deploy_email_series():
         logo_url = email_data.get('logoUrl', '')
         hero_url = email_data.get('heroUrl', '')
 
-        # Render the email HTML
         email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
         email_name = f"{brand_name}_{series['name'].replace(' ', '_')}_Email_{i + 1}"
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
 
-        # Build CMS content JSON (contentBody)
         content_json = build_cms_email_content_json(
             email_html, copy_data.get('subject', ''), copy_data.get('preheader', ''), title=email_title
         )
 
         try:
-            # Create CMS content via connect API (multipart with contentBody)
             input_param = json.dumps({
                 "contentSpaceOrFolderId": workspace_id,
                 "contentType": "sfdc_cms__email",
@@ -2496,7 +2499,6 @@ def deploy_email_series():
                 timeout=30
             )
 
-            # Auto-refresh on 401 and retry once
             if resp.status_code == 401 and try_refresh_token():
                 token = session.get('sf_access_token')
                 resp = requests.post(
@@ -2518,7 +2520,6 @@ def deploy_email_series():
                     'order': i + 1
                 })
 
-                # Step 2: Publish the email
                 try:
                     pub_resp = requests.post(
                         f"{instance}/services/data/v66.0/connect/cms/contents/{content_id}/publish",
@@ -2544,11 +2545,9 @@ def deploy_email_series():
 
         if flow_data:
             try:
-                # Deploy flow via Metadata API (zip deploy)
                 flow_xml = flow_data['xml']
                 flow_api_name = flow_data['flowApiName']
 
-                # Build a zip with package.xml and the flow file
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                     package_xml = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -2564,7 +2563,6 @@ def deploy_email_series():
                 zip_buffer.seek(0)
                 zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
 
-                # Use Metadata API SOAP deploy
                 deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:met="http://soap.sforce.com/2006/04/metadata">
@@ -2593,7 +2591,6 @@ def deploy_email_series():
                 )
 
                 if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
-                    # Extract deploy ID from response
                     root = ET.fromstring(deploy_resp.text)
                     ns = {'met': 'http://soap.sforce.com/2006/04/metadata',
                           'soap': 'http://schemas.xmlsoap.org/soap/envelope/'}
@@ -2632,7 +2629,6 @@ def deploy_email_series():
         today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
-            # 4a: Get Business Unit ID for MCA Campaign
             bu_id = ''
             try:
                 bu_resp = sf_api('GET',
@@ -2645,7 +2641,6 @@ def deploy_email_series():
             except Exception:
                 pass
 
-            # 4a: Create Campaign record with Business Unit
             camp_body = {
                 'Name': campaign_name,
                 'Type': 'Email',
@@ -2666,7 +2661,6 @@ def deploy_email_series():
                     'status': 'Created'
                 }
 
-                # 4b: Get current user ID for brief
                 user_id = ''
                 try:
                     user_resp = sf_api('GET', '/services/data/v66.0/chatter/users/me', token, instance)
@@ -2675,14 +2669,12 @@ def deploy_email_series():
                 except Exception:
                     pass
 
-                # 4c: Build brief fields from brand config + email copy
                 tone = config.get('tone', {})
                 tone_label = tone.get('label', 'Professional') if isinstance(tone, dict) else str(tone)
                 identity = config.get('identity', '')
                 colors = config.get('colors', [])
                 industry = config.get('industry', '')
 
-                # Collect subject lines and CTAs from the emails
                 subject_lines = []
                 cta_texts = []
                 for em in emails:
@@ -2715,10 +2707,6 @@ def deploy_email_series():
                     brief_fields['DICE_CBB_Updated_By__c'] = user_id
 
                 try:
-                    # Check if Campaign Brief object exists on this org
-                    brief_describe = sf_api('GET', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c/describe',
-                                            token, instance)
-                    # Check if Campaign Brief object exists on this org
                     brief_describe = sf_api('GET', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c/describe',
                                             token, instance)
                     if brief_describe.status_code == 404:
@@ -2732,7 +2720,6 @@ def deploy_email_series():
                             campaign_result['briefId'] = brief_id
                             campaign_result['briefName'] = brief_fields['Name']
 
-                            # 4d: Link Freeform template module + create HTML version
                             try:
                                 tmpl_resp = sf_api('GET',
                                     '/services/data/v66.0/query/?q=' +
@@ -2743,7 +2730,6 @@ def deploy_email_series():
                                     if tmpl_records:
                                         template_id = tmpl_records[0]['Id']
 
-                                        # Create junction record
                                         junc_resp = sf_api('POST',
                                             '/services/data/v66.0/sobjects/DICE_CBB_CampaignBriefSelectedModule__c',
                                             token, instance, body={
@@ -2755,7 +2741,6 @@ def deploy_email_series():
                                         if junc_resp.status_code in (200, 201):
                                             selected_module_id = junc_resp.json().get('id', '')
 
-                                            # Build HTML summary for the brief module
                                             primary_color = colors[0]['hex'] if colors else '#0176d3'
                                             email_list_html = ''.join(
                                                 f"<li style='margin-bottom:8px'><strong>Email {i+1}:</strong> {s}</li>"
@@ -2776,7 +2761,6 @@ def deploy_email_series():
                                                 f"</div>"
                                             )
 
-                                            # Create module version via REST
                                             ver_resp = sf_api('POST',
                                                 '/services/data/v66.0/sobjects/DICE_CBB_BriefModuleVersion__c',
                                                 token, instance, body={
@@ -2803,14 +2787,96 @@ def deploy_email_series():
         except Exception as ce:
             errors.append(f"Campaign: {str(ce)[:150]}")
 
-    return jsonify({
+    return {
         'success': len(created_emails) > 0,
         'emails': created_emails,
         'flow': flow_result,
         'campaign': campaign_result,
         'errors': errors,
         'totalCreated': len(created_emails)
-    })
+    }
+
+
+@app.route('/api/sf/deploy-email-series', methods=['POST'])
+def deploy_email_series():
+    """Deploy email series to Salesforce: upload emails to CMS, publish, create flow."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    if data.get('series', '') not in EMAIL_SERIES:
+        return jsonify({'error': f'Invalid series: {data.get("series", "")}'}), 400
+    if not data.get('workspaceId'):
+        return jsonify({'error': 'No workspace selected'}), 400
+    if not data.get('emails'):
+        return jsonify({'error': 'No emails provided'}), 400
+
+    result = _deploy_email_series_internal(token, instance, data)
+    return jsonify(result)
+
+
+@app.route('/api/sf/deploy-all', methods=['POST'])
+def deploy_all():
+    """Unified deploy: brand + images + optional email series, all in one request."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    config = data.get('config', {})
+    workspace_id = data.get('workspaceId', '')
+    workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
+    email_series_list = data.get('emailSeries', [])  # list of series keys: ['nurture', 'welcome']
+    email_config = data.get('emailConfig', {})
+    email_data = data.get('emailData', {})  # { nurture: [{copy, logoUrl, heroUrl},...], welcome: [...] }
+
+    if not workspace_id:
+        return jsonify({'error': 'No workspace selected'}), 400
+
+    results = {
+        'brand': None,
+        'emailSeries': {},
+        'errors': [],
+        'success': False
+    }
+
+    # Step 1: Deploy brand + images
+    brand_result = _deploy_brand_internal(token, instance, config, workspace_id)
+    results['brand'] = brand_result
+    if brand_result.get('errors'):
+        results['errors'].extend(brand_result['errors'])
+
+    # Step 2: Deploy each selected email series
+    for series_key in email_series_list:
+        series_emails = email_data.get(series_key, [])
+        if not series_emails:
+            continue
+
+        series_data = {
+            'series': series_key,
+            'emails': series_emails,
+            'config': config,
+            'workspaceId': workspace_id,
+            'workspaceName': workspace_name,
+            'segmentId': email_config.get('segmentId', ''),
+            'senderId': email_config.get('senderId', ''),
+            'subscriptionId': email_config.get('subscriptionId', ''),
+            'channelTypeId': email_config.get('channelTypeId', ''),
+            'createFlow': email_config.get('createFlow', True),
+            'createCampaign': email_config.get('createCampaign', True),
+            'headerColor': email_config.get('headerColor', None)
+        }
+
+        series_result = _deploy_email_series_internal(token, instance, series_data)
+        results['emailSeries'][series_key] = series_result
+        if series_result.get('errors'):
+            results['errors'].extend(series_result['errors'])
+
+    results['success'] = brand_result.get('success', False)
+    return jsonify(results)
 
 
 @app.route('/oauth/logout')

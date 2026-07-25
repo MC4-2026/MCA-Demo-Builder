@@ -373,17 +373,70 @@
       <div id="workspaceError" class="hidden mt-3 text-error text-sm font-medium"></div>
     </div>
 
-    <!-- Sub-step C: Deploy -->
+    <!-- Sub-step C: Email Campaign Settings (shown only when email series are included) -->
+    <div id="deploy-email-config" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-50 pointer-events-none">
+      <div class="flex items-center gap-3 mb-4">
+        <div id="emailCfgIcon" class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">3</div>
+        <h3 class="text-lg font-semibold text-secondary">Email Campaign Settings</h3>
+        <span class="text-xs text-muted ml-2">(Optional — configure now or later in Salesforce)</span>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-secondary mb-1">Sender Email</label>
+          <select id="unifiedSender" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">None (configure in Flow Builder)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-secondary mb-1">Communication Subscription</label>
+          <select id="unifiedSub" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">None (configure later)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-secondary mb-1">Channel Type</label>
+          <select id="unifiedChan" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">None (configure later)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-secondary mb-1">Data Cloud Segment</label>
+          <select id="unifiedSegment" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+            <option value="">None (assign in Flow Builder)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-4 mt-4">
+        <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
+          <input type="checkbox" id="unifiedCreateFlow" checked class="accent-primary">
+          <div>
+            <span class="block text-sm font-medium text-secondary">Create Marketing Flow</span>
+            <span class="text-xs text-muted">Segment-triggered flow with wait elements</span>
+          </div>
+        </label>
+        <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
+          <input type="checkbox" id="unifiedCreateCampaign" checked class="accent-primary">
+          <div>
+            <span class="block text-sm font-medium text-secondary">Create Campaign & Brief</span>
+            <span class="text-xs text-muted">MCA Campaign with Campaign Brief</span>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Sub-step D: Deploy Everything -->
     <div id="deploy-action" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-50 pointer-events-none">
       <div class="flex items-center gap-3 mb-4">
-        <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">3</div>
-        <h3 class="text-lg font-semibold text-secondary">Deploy Brand</h3>
+        <div id="deployStepIcon" class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">3</div>
+        <h3 class="text-lg font-semibold text-secondary">Deploy to Salesforce</h3>
       </div>
 
       <!-- Pre-deploy summary -->
       <div id="deploySummary" class="mb-4">
         <p class="text-muted text-sm mb-3">Ready to deploy the following to your Salesforce CMS:</p>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+        <div id="deploySummaryGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           <div class="bg-surface rounded-lg p-3">
             <div class="text-xl font-bold text-secondary">1</div>
             <div class="text-xs text-muted">Brand</div>
@@ -392,13 +445,21 @@
             <div id="deployImageCount" class="text-xl font-bold text-secondary">0</div>
             <div class="text-xs text-muted">Images</div>
           </div>
+          <div id="deployEmailCountCard" class="hidden bg-surface rounded-lg p-3">
+            <div id="deployEmailCount" class="text-xl font-bold text-secondary">0</div>
+            <div class="text-xs text-muted">Emails</div>
+          </div>
+          <div id="deployFlowCountCard" class="hidden bg-surface rounded-lg p-3">
+            <div id="deployFlowCount" class="text-xl font-bold text-secondary">0</div>
+            <div class="text-xs text-muted">Flows</div>
+          </div>
+          <div id="deployCampaignCountCard" class="hidden bg-surface rounded-lg p-3">
+            <div id="deployCampaignCount" class="text-xl font-bold text-secondary">0</div>
+            <div class="text-xs text-muted">Campaigns</div>
+          </div>
           <div class="bg-surface rounded-lg p-3">
             <div id="deployColorCount" class="text-xl font-bold text-secondary">0</div>
             <div class="text-xs text-muted">Colors</div>
-          </div>
-          <div class="bg-surface rounded-lg p-3">
-            <div id="deployFontCount" class="text-xl font-bold text-secondary">2</div>
-            <div class="text-xs text-muted">Fonts</div>
           </div>
         </div>
       </div>
@@ -406,7 +467,7 @@
       <button id="btnDeploy" onclick="executeDeploy()"
         class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-        Deploy Brand Now
+        Deploy to Salesforce
       </button>
 
       <!-- Deploy progress -->
@@ -436,8 +497,8 @@
           <svg class="w-7 h-7 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         </div>
         <div>
-          <h2 class="text-2xl font-bold text-secondary">Brand Deployed!</h2>
-          <p class="text-muted text-sm">Your brand has been created and published in Salesforce CMS.</p>
+          <h2 class="text-2xl font-bold text-secondary">Deployed Successfully!</h2>
+          <p class="text-muted text-sm">Your brand and content have been created and published in Salesforce CMS.</p>
         </div>
       </div>
 
@@ -458,6 +519,9 @@
         </div>
       </div>
 
+      <!-- Email series results detail -->
+      <div id="successEmailDetail" class="hidden mb-4 space-y-2"></div>
+
       <div id="successWarnings" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm"></div>
 
       <div class="flex items-center gap-4 flex-wrap">
@@ -466,10 +530,6 @@
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
           Open in Salesforce CMS
         </a>
-        <button onclick="_emailCameFrom='step-confirm';showStep('step-emails');initEmailSeriesUI()" class="px-6 py-2.5 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition cursor-pointer inline-flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-          Build Email Series
-        </button>
         <button onclick="goBack()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
           Analyze Another Website
         </button>
@@ -573,9 +633,9 @@
         <button onclick="goBackFromEmails()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
           &larr; Back
         </button>
-        <button id="btnDeployEmails" onclick="startEmailDeploy()" class="hidden px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer flex items-center gap-2">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-          Deploy to Salesforce
+        <button id="btnDeployEmails" onclick="startUnifiedDeploy()" class="hidden px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+          Continue to Deploy &rarr;
         </button>
       </div>
     </div>
@@ -595,104 +655,7 @@
       </div>
     </div>
 
-    <!-- Deploy Modal -->
-    <div id="emailDeployModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between p-5 border-b border-gray-200">
-          <h3 class="font-bold text-secondary text-lg">Deploy Email Series</h3>
-          <button onclick="closeDeployModal()" class="p-1 hover:bg-gray-100 rounded cursor-pointer">
-            <svg class="w-5 h-5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="p-5 space-y-4">
-          <!-- Workspace -->
-          <div>
-            <label class="block text-sm font-semibold text-secondary mb-1">CMS Workspace</label>
-            <select id="emailDeployWorkspace" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">Loading...</option>
-            </select>
-          </div>
-
-          <!-- Sender -->
-          <div>
-            <label class="block text-sm font-semibold text-secondary mb-1">Sender Email</label>
-            <select id="emailDeploySender" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">None (configure in Flow Builder)</option>
-            </select>
-            <p class="text-xs text-muted mt-1">OrgWideEmailAddress used as the "From" address</p>
-          </div>
-
-          <!-- Subscription -->
-          <div>
-            <label class="block text-sm font-semibold text-secondary mb-1">Communication Subscription</label>
-            <select id="emailDeploySub" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">None (configure later)</option>
-            </select>
-          </div>
-
-          <!-- Channel Type -->
-          <div>
-            <label class="block text-sm font-semibold text-secondary mb-1">Channel Type</label>
-            <select id="emailDeployChan" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">None (configure later)</option>
-            </select>
-          </div>
-
-          <!-- Segment -->
-          <div>
-            <label class="block text-sm font-semibold text-secondary mb-1">Data Cloud Segment</label>
-            <select id="emailDeploySegment" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">None (assign in Flow Builder)</option>
-            </select>
-            <p class="text-xs text-muted mt-1">Published segment to trigger the flow</p>
-          </div>
-
-          <!-- Create Flow Toggle -->
-          <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
-            <input type="checkbox" id="emailDeployCreateFlow" checked class="accent-primary">
-            <div>
-              <span class="block text-sm font-medium text-secondary">Create Marketing Flow</span>
-              <span class="text-xs text-muted">Deploy a segment-triggered flow with wait elements between sends</span>
-            </div>
-          </label>
-
-          <!-- Create Campaign & Brief Toggle -->
-          <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
-            <input type="checkbox" id="emailDeployCreateCampaign" checked class="accent-primary">
-            <div>
-              <span class="block text-sm font-medium text-secondary">Create Campaign & Brief</span>
-              <span class="text-xs text-muted">Creates an MCA Campaign with a Campaign Brief summarizing the email series</span>
-            </div>
-          </label>
-
-          <!-- Deploy Progress -->
-          <div id="emailDeployProgress" class="hidden">
-            <div class="flex items-center gap-3">
-              <svg class="w-5 h-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-              </svg>
-              <span id="emailDeployStatus" class="text-sm text-secondary">Deploying...</span>
-            </div>
-          </div>
-
-          <!-- Deploy Result -->
-          <div id="emailDeployResult" class="hidden p-4 bg-surface rounded-lg border border-gray-200 text-sm"></div>
-
-          <!-- Actions -->
-          <div class="flex items-center gap-3 pt-2">
-            <button id="btnExecuteDeploy" onclick="executeEmailDeploy()"
-              class="flex-1 px-6 py-2.5 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition cursor-pointer flex items-center justify-center gap-2">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-              Deploy Now
-            </button>
-            <button onclick="closeDeployModal()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- (Deploy Modal removed — unified deploy flow handles this) -->
   </section>
 
 </main>
@@ -1119,15 +1082,56 @@ let sfConnected = false;
 let oauthPopup = null;
 
 function startDeploy() {
+  startUnifiedDeploy();
+}
+
+function startUnifiedDeploy() {
   // Store brand config in localStorage to survive OAuth redirect
   const config = gatherFinalConfig();
   localStorage.setItem('brandConfig', JSON.stringify(config));
+
+  // Determine which email series have generated copy
+  const hasNurtureCopy = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
+  const hasWelcomeCopy = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
+  const hasAnyEmails = hasNurtureCopy || hasWelcomeCopy;
 
   // Update deploy summary counts
   document.getElementById('deployImageCount').textContent = config.images.length;
   document.getElementById('deployColorCount').textContent = config.colors.length;
 
-  // Reset deploy action state — fixes bug where button stays hidden after a previous deploy
+  // Show/hide email-related summary cards and email config step
+  const emailCountCard = document.getElementById('deployEmailCountCard');
+  const flowCountCard = document.getElementById('deployFlowCountCard');
+  const campaignCountCard = document.getElementById('deployCampaignCountCard');
+  const emailConfigStep = document.getElementById('deploy-email-config');
+
+  if (hasAnyEmails) {
+    let emailCount = 0;
+    let seriesCount = 0;
+    if (hasNurtureCopy) { emailCount += emailSeriesState.series.nurture.emails.length; seriesCount++; }
+    if (hasWelcomeCopy) { emailCount += emailSeriesState.series.welcome.emails.length; seriesCount++; }
+
+    document.getElementById('deployEmailCount').textContent = emailCount;
+    document.getElementById('deployFlowCount').textContent = seriesCount;
+    document.getElementById('deployCampaignCount').textContent = seriesCount;
+    emailCountCard.classList.remove('hidden');
+    flowCountCard.classList.remove('hidden');
+    campaignCountCard.classList.remove('hidden');
+    emailConfigStep.classList.remove('hidden');
+
+    // Update step numbers for email config and deploy action
+    document.getElementById('emailCfgIcon').textContent = '3';
+    document.getElementById('deployStepIcon').textContent = '4';
+  } else {
+    emailCountCard.classList.add('hidden');
+    flowCountCard.classList.add('hidden');
+    campaignCountCard.classList.add('hidden');
+    emailConfigStep.classList.add('hidden');
+
+    document.getElementById('deployStepIcon').textContent = '3';
+  }
+
+  // Reset deploy action state
   document.getElementById('btnDeploy').classList.remove('hidden');
   document.getElementById('deployProgress').classList.add('hidden');
   document.getElementById('deployProgressBar').style.width = '0%';
@@ -1229,6 +1233,12 @@ async function onConnected(instanceUrl) {
 
   // Load workspaces
   await loadWorkspaces();
+
+  // If email series are included, load consent config for the unified dropdowns
+  const emailCfgStep = document.getElementById('deploy-email-config');
+  if (!emailCfgStep.classList.contains('hidden')) {
+    await loadEmailDeployConfig();
+  }
 }
 
 async function disconnectSalesforce() {
@@ -1327,11 +1337,81 @@ async function loadWorkspaces() {
   }
 }
 
+async function loadEmailDeployConfig() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/consent-config`);
+    const data = await resp.json();
+
+    _populateDropdown('unifiedSender', data.senders || [], 'id', 'label', 'None (configure in Flow Builder)');
+    _populateDropdown('unifiedSub', data.subscriptions || [], 'id', 'name', 'None (configure later)');
+    _populateDropdown('unifiedChan', data.channelTypes || [], 'id', 'name', 'None (configure later)');
+    _populateDropdown('unifiedSegment', data.segments || [], 'id', 'name', 'None (assign in Flow Builder)');
+
+    // Enable the email config step
+    const el = document.getElementById('deploy-email-config');
+    el.classList.remove('opacity-50', 'pointer-events-none');
+  } catch (e) {
+    console.warn('Could not load consent config:', e);
+    const el = document.getElementById('deploy-email-config');
+    el.classList.remove('opacity-50', 'pointer-events-none');
+  }
+}
+
+function _populateDropdown(id, items, valKey, labelKey, defaultText) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = `<option value="">${defaultText}</option>`;
+  items.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item[valKey];
+    opt.textContent = item[labelKey];
+    sel.appendChild(opt);
+  });
+}
+
 async function executeDeploy() {
   const workspaceId = autoWorkspaceId;
   if (!workspaceId) return;
 
   const config = gatherFinalConfig();
+
+  // Determine selected email series
+  const emailSeries = [];
+  const emailData = {};
+  const hasNurture = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
+  const hasWelcome = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
+
+  if (hasNurture) {
+    emailSeries.push('nurture');
+    emailData.nurture = emailSeriesState.series.nurture.emails.map(e => ({
+      copy: e,
+      logoUrl: emailSeriesState.selectedLogo || '',
+      heroUrl: e.heroUrl || ''
+    }));
+  }
+  if (hasWelcome) {
+    emailSeries.push('welcome');
+    emailData.welcome = emailSeriesState.series.welcome.emails.map(e => ({
+      copy: e,
+      logoUrl: emailSeriesState.selectedLogo || '',
+      heroUrl: e.heroUrl || ''
+    }));
+  }
+
+  // Get workspace name for flow deployment
+  const wsName = (document.getElementById('detectedWsName')?.textContent ||
+    document.getElementById('workspaceSelect')?.selectedOptions?.[0]?.text || 'Default_Content_Workspace')
+    .replace(/\s+/g, '_');
+
+  // Build email config from unified form fields
+  const emailConfig = emailSeries.length > 0 ? {
+    senderId: document.getElementById('unifiedSender')?.value || '',
+    subscriptionId: document.getElementById('unifiedSub')?.value || '',
+    channelTypeId: document.getElementById('unifiedChan')?.value || '',
+    segmentId: document.getElementById('unifiedSegment')?.value || '',
+    createFlow: document.getElementById('unifiedCreateFlow')?.checked ?? true,
+    createCampaign: document.getElementById('unifiedCreateCampaign')?.checked ?? true,
+    headerColor: emailSeriesState.headerColor
+  } : {};
 
   // Show progress, hide button
   document.getElementById('btnDeploy').classList.add('hidden');
@@ -1342,12 +1422,21 @@ async function executeDeploy() {
   progress.classList.remove('hidden');
   errEl.classList.add('hidden');
 
+  // Build progress steps dynamically
   const steps = [
-    { pct: 15, msg: 'Uploading images to CMS...' },
-    { pct: 45, msg: 'Creating brand content...' },
-    { pct: 70, msg: 'Publishing content...' },
-    { pct: 90, msg: 'Finishing up...' }
+    { pct: 10, msg: 'Uploading images to CMS...' },
+    { pct: 30, msg: 'Creating brand content...' },
+    { pct: 45, msg: 'Publishing brand...' }
   ];
+
+  if (emailSeries.length > 0) {
+    steps.push({ pct: 55, msg: 'Creating email content...' });
+    steps.push({ pct: 70, msg: 'Publishing emails...' });
+    steps.push({ pct: 80, msg: 'Deploying marketing flows...' });
+    steps.push({ pct: 90, msg: 'Creating campaigns...' });
+  }
+
+  steps.push({ pct: 95, msg: 'Finishing up...' });
 
   let stepIdx = 0;
   const stepInterval = setInterval(() => {
@@ -1356,13 +1445,20 @@ async function executeDeploy() {
       statusText.textContent = steps[stepIdx].msg;
       stepIdx++;
     }
-  }, 1500);
+  }, 2000);
 
   try {
-    const resp = await fetch(`${API_BASE}/api/sf/deploy`, {
+    const resp = await fetch(`${API_BASE}/api/sf/deploy-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config, workspaceId })
+      body: JSON.stringify({
+        config,
+        workspaceId,
+        workspaceName: wsName,
+        emailSeries,
+        emailConfig,
+        emailData
+      })
     });
 
     clearInterval(stepInterval);
@@ -1375,7 +1471,7 @@ async function executeDeploy() {
     const result = await resp.json();
 
     if (!result.success) {
-      throw new Error(result.error || 'Deployment failed');
+      throw new Error(result.errors?.[0] || 'Deployment failed');
     }
 
     progressBar.style.width = '100%';
@@ -1398,19 +1494,67 @@ async function executeDeploy() {
 function showDeploySuccess(config, result) {
   document.getElementById('successBrandName').textContent = config.brandName;
   const wsName = document.getElementById('detectedWsName')?.textContent ||
-    document.getElementById('workspaceSelect')?.options[document.getElementById('workspaceSelect')?.selectedIndex]?.text || 'CMS Workspace';
+    document.getElementById('workspaceSelect')?.selectedOptions?.[0]?.text || 'CMS Workspace';
   document.getElementById('successWorkspace').textContent = wsName;
-  document.getElementById('successItemCount').textContent = result.totalCreated || result.contentIds.length;
+
+  // Count total items created
+  let totalItems = result.brand?.totalCreated || 0;
+  const emailSeriesResults = result.emailSeries || {};
+  Object.values(emailSeriesResults).forEach(sr => {
+    totalItems += (sr.emails?.length || 0);
+    if (sr.flow) totalItems++;
+    if (sr.campaign) totalItems++;
+  });
+  document.getElementById('successItemCount').textContent = totalItems;
 
   // Set CMS link
   const instanceUrl = document.getElementById('connectedOrg').textContent;
   document.getElementById('successCmsLink').href = `https://${instanceUrl}/lightning/cms/home`;
 
+  // Build email series detail section
+  const detailEl = document.getElementById('successEmailDetail');
+  const seriesKeys = Object.keys(emailSeriesResults);
+  if (seriesKeys.length > 0) {
+    let detailHtml = '';
+    seriesKeys.forEach(sk => {
+      const sr = emailSeriesResults[sk];
+      const seriesLabel = sk === 'nurture' ? 'Nurture Series' : 'Welcome Series';
+      detailHtml += `<div class="bg-surface rounded-lg p-3 border border-gray-200">
+        <h4 class="font-semibold text-secondary text-sm mb-2">${seriesLabel}</h4>
+        <div class="space-y-1 text-xs text-muted">`;
+
+      if (sr.emails && sr.emails.length > 0) {
+        detailHtml += `<div>✅ ${sr.emails.length} email(s) created and published</div>`;
+      }
+      if (sr.flow) {
+        const flowStatus = sr.flow.status === 'Deploying' ? '✅ Flow deploying' : '⚠️ Flow: ' + (sr.flow.error || sr.flow.status);
+        detailHtml += `<div>${flowStatus}: <strong>${sr.flow.name || ''}</strong></div>`;
+      }
+      if (sr.campaign) {
+        detailHtml += `<div>✅ Campaign created: <strong>${sr.campaign.name || ''}</strong></div>`;
+        if (sr.campaign.briefSkipped) {
+          detailHtml += `<div class="text-amber-600">ℹ️ ${sr.campaign.briefNote || 'Campaign Brief skipped'}</div>`;
+        } else if (sr.campaign.briefName) {
+          detailHtml += `<div>✅ Brief: <strong>${sr.campaign.briefName}</strong></div>`;
+        }
+      }
+
+      detailHtml += '</div></div>';
+    });
+    detailEl.innerHTML = detailHtml;
+    detailEl.classList.remove('hidden');
+  } else {
+    detailEl.classList.add('hidden');
+  }
+
   // Show warnings if any
-  if (result.errors && result.errors.length > 0) {
+  const allErrors = result.errors || [];
+  if (allErrors.length > 0) {
     const warnEl = document.getElementById('successWarnings');
-    warnEl.innerHTML = '<strong>Note:</strong> ' + result.errors.join('<br>');
+    warnEl.innerHTML = '<strong>Note:</strong> ' + allErrors.join('<br>');
     warnEl.classList.remove('hidden');
+  } else {
+    document.getElementById('successWarnings').classList.add('hidden');
   }
 
   showStep('step-confirm');
@@ -1890,239 +2034,7 @@ function closeEmailPreview() {
   document.getElementById('emailPreviewModal').classList.add('hidden');
 }
 
-async function startEmailDeploy() {
-  // Check OAuth session
-  try {
-    const connResp = await fetch(`${API_BASE}/api/sf/connection-status`);
-    const connData = await connResp.json();
-    if (!connData.connected) {
-      // Offer to connect — use the same OAuth flow as the brand deploy
-      const env = prompt('You need to connect to Salesforce first.\n\nEnter environment: "production" or "sandbox"', 'production');
-      if (!env) return;
-      const envKey = env.toLowerCase().includes('sandbox') ? 'sandbox' : 'production';
-      // Store config in localStorage so it survives the redirect
-      localStorage.setItem('brandConfig', JSON.stringify(gatherFinalConfig()));
-      localStorage.setItem('returnToEmails', 'true');
-      // Open OAuth in popup
-      const popup = window.open(`${API_BASE}/oauth/login?env=${envKey}`, 'sfOAuth', 'width=600,height=700');
-      if (!popup) {
-        // Popup blocked — redirect in same window
-        window.location.href = `${API_BASE}/oauth/login?env=${envKey}`;
-      }
-      return;
-    }
-  } catch (e) {
-    alert('Could not check Salesforce connection. Please try again.');
-    return;
-  }
-
-  // Show deploy modal
-  document.getElementById('emailDeployModal').classList.remove('hidden');
-
-  // Load workspace list
-  const wsSel = document.getElementById('emailDeployWorkspace');
-  wsSel.innerHTML = '<option value="">Loading workspaces...</option>';
-  try {
-    const wsResp = await fetch(`${API_BASE}/api/sf/workspaces`);
-    const wsData = await wsResp.json();
-    wsSel.innerHTML = '<option value="">Select a workspace...</option>';
-    (wsData.allWorkspaces || []).forEach(ws => {
-      const opt = document.createElement('option');
-      opt.value = ws.id;
-      opt.textContent = ws.name;
-      opt.dataset.name = ws.name.replace(/\s+/g, '_');
-      wsSel.appendChild(opt);
-    });
-    if (wsData.marketingWorkspace) {
-      wsSel.value = wsData.marketingWorkspace.id;
-    }
-  } catch (e) {
-    wsSel.innerHTML = '<option value="">Failed to load workspaces</option>';
-  }
-
-  // Load consent config
-  try {
-    const ccResp = await fetch(`${API_BASE}/api/sf/consent-config`);
-    const ccData = await ccResp.json();
-
-    // Senders
-    const senderSel = document.getElementById('emailDeploySender');
-    senderSel.innerHTML = '<option value="">None (configure in Flow Builder)</option>';
-    (ccData.senders || []).forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = s.label;
-      senderSel.appendChild(opt);
-    });
-
-    // Subscriptions
-    const subSel = document.getElementById('emailDeploySub');
-    subSel.innerHTML = '<option value="">None (configure later)</option>';
-    (ccData.subscriptions || []).forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = s.name;
-      subSel.appendChild(opt);
-    });
-
-    // Channel Types
-    const chanSel = document.getElementById('emailDeployChan');
-    chanSel.innerHTML = '<option value="">None (configure later)</option>';
-    (ccData.channelTypes || []).forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = s.name;
-      chanSel.appendChild(opt);
-    });
-
-    // Segments
-    const segSel = document.getElementById('emailDeploySegment');
-    segSel.innerHTML = '<option value="">None (assign in Flow Builder)</option>';
-    (ccData.segments || []).forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = s.name;
-      segSel.appendChild(opt);
-    });
-  } catch (e) {
-    console.warn('Could not load consent config:', e);
-  }
-}
-
-function closeDeployModal() {
-  document.getElementById('emailDeployModal').classList.add('hidden');
-}
-
-async function executeEmailDeploy() {
-  const workspaceId = document.getElementById('emailDeployWorkspace').value;
-  if (!workspaceId) {
-    alert('Please select a workspace.');
-    return;
-  }
-
-  const wsOption = document.getElementById('emailDeployWorkspace').selectedOptions[0];
-  const workspaceName = wsOption.dataset.name || 'Default_Content_Workspace';
-  const senderId = document.getElementById('emailDeploySender').value;
-  const subscriptionId = document.getElementById('emailDeploySub').value;
-  const channelTypeId = document.getElementById('emailDeployChan').value;
-  const segmentId = document.getElementById('emailDeploySegment').value;
-  const createFlow = document.getElementById('emailDeployCreateFlow').checked;
-  const createCampaign = document.getElementById('emailDeployCreateCampaign').checked;
-
-  const config = gatherFinalConfig();
-
-  // Pre-check: ensure at least one series has generated emails
-  const hasNurture = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
-  const hasWelcome = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
-  if (!hasNurture && !hasWelcome) {
-    alert('No email series ready to deploy. Please generate email copy first.');
-    return;
-  }
-
-  const progressEl = document.getElementById('emailDeployProgress');
-  const statusEl = document.getElementById('emailDeployStatus');
-  const resultEl = document.getElementById('emailDeployResult');
-  const deployBtn = document.getElementById('btnExecuteDeploy');
-
-  progressEl.classList.remove('hidden');
-  resultEl.classList.add('hidden');
-  deployBtn.classList.add('opacity-60', 'pointer-events-none');
-
-  const seriesToDeploy = [];
-  if (emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0) seriesToDeploy.push('nurture');
-  if (emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0) seriesToDeploy.push('welcome');
-
-  let allResults = [];
-  let allErrors = [];
-
-  for (const sk of seriesToDeploy) {
-    statusEl.textContent = `Deploying ${sk} series... Creating emails${createFlow ? ', flow' : ''}${createCampaign ? ', campaign & brief' : ''}...`;
-
-    const seriesEmails = emailSeriesState.series[sk].emails.map(e => ({
-      copy: e,
-      logoUrl: emailSeriesState.selectedLogo || '',
-      heroUrl: e.heroUrl || ''
-    }));
-
-    try {
-      const resp = await fetch(`${API_BASE}/api/sf/deploy-email-series`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          series: sk,
-          emails: seriesEmails,
-          config,
-          workspaceId,
-          workspaceName,
-          segmentId,
-          senderId,
-          subscriptionId,
-          channelTypeId,
-          createFlow,
-          createCampaign,
-          headerColor: emailSeriesState.headerColor
-        })
-      });
-
-      if (resp.status === 401) {
-        allErrors.push(`${sk} series: Salesforce session expired. Please reconnect and try again.`);
-        continue;
-      }
-
-      const data = await resp.json();
-
-      if (data.error) {
-        allErrors.push(`${sk} series: ${data.error}`);
-        continue;
-      }
-
-      if (data.emails) allResults.push(...data.emails.map(e => ({ ...e, series: sk })));
-      if (data.flow) allResults.push({ type: 'flow', series: sk, ...data.flow });
-      if (data.campaign) allResults.push({ type: 'campaign', series: sk, ...data.campaign });
-      if (data.errors && data.errors.length > 0) allErrors.push(...data.errors);
-    } catch (err) {
-      allErrors.push(`${sk} series: ${err.message}`);
-    }
-  }
-
-  progressEl.classList.add('hidden');
-  deployBtn.classList.remove('opacity-60', 'pointer-events-none');
-
-  // Show results
-  resultEl.classList.remove('hidden');
-  let resultHtml = '';
-
-  if (allResults.length > 0) {
-    resultHtml += '<div class="text-success font-semibold mb-2">✅ Deployment Complete</div>';
-    resultHtml += '<div class="space-y-1 text-sm">';
-    allResults.forEach(r => {
-      if (r.type === 'campaign') {
-        resultHtml += `<div>🎯 Campaign: <strong>${r.name}</strong>`;
-        if (r.briefName) resultHtml += ` — Brief: <strong>${r.briefName}</strong>`;
-        else if (r.briefSkipped) resultHtml += ` <span class="text-muted text-xs">(Brief skipped — not installed on org)</span>`;
-        resultHtml += `</div>`;
-      } else if (r.type === 'flow') {
-        resultHtml += `<div>📋 Flow: <strong>${r.name}</strong> (${r.status})</div>`;
-      } else {
-        resultHtml += `<div>📧 Email: <strong>${r.name}</strong></div>`;
-      }
-    });
-    resultHtml += '</div>';
-  }
-
-  if (allErrors.length > 0) {
-    resultHtml += '<div class="mt-3 text-error text-sm">';
-    resultHtml += '<div class="font-semibold mb-1">⚠️ Some issues occurred:</div>';
-    allErrors.forEach(e => { resultHtml += `<div>• ${e}</div>`; });
-    resultHtml += '</div>';
-  }
-
-  if (allResults.length === 0 && allErrors.length === 0) {
-    resultHtml = '<div class="text-muted">No series were selected for deployment.</div>';
-  }
-
-  resultEl.innerHTML = resultHtml;
-}
+// (startEmailDeploy, closeDeployModal, executeEmailDeploy removed — unified deploy flow handles this)
 
 // Load industries on page load
 loadIndustries();
@@ -2154,15 +2066,9 @@ if (new URLSearchParams(window.location.search).get('connected') === '1') {
         sourceUrl: config.sourceUrl || ''
       };
       renderPreview();
-      // Check if we came from email deploy flow
-      if (localStorage.getItem('returnToEmails') === 'true') {
-        localStorage.removeItem('returnToEmails');
-        showStep('step-emails');
-        initEmailSeriesUI();
-        setTimeout(() => startEmailDeploy(), 500);
-      } else {
-        setTimeout(() => startDeploy(), 300);
-      }
+      // After OAuth redirect, go to unified deploy flow
+      localStorage.removeItem('returnToEmails');
+      setTimeout(() => startUnifiedDeploy(), 300);
     } catch (e) {}
   }
 }
