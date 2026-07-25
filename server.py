@@ -1997,17 +1997,17 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
   </tr>
   {hero_section}
   <tr>
-    <td style="padding:40px 40px 20px 40px;">
-      <h1 style="font-family:{font_family},Arial,sans-serif;color:{secondary};font-size:28px;font-weight:700;margin:0 0 16px 0;line-height:1.3;">
+    <td style="padding:40px 40px 20px 40px;text-align:center;">
+      <h1 style="font-family:{font_family},Arial,sans-serif;color:{secondary};font-size:28px;font-weight:700;margin:0 0 16px 0;line-height:1.3;text-align:center;">
         {heading}
       </h1>
-      <p style="font-family:{font_family},Arial,sans-serif;color:#333333;font-size:16px;line-height:1.6;margin:0 0 24px 0;">
+      <p style="font-family:{font_family},Arial,sans-serif;color:#333333;font-size:16px;line-height:1.6;margin:0 0 28px 0;text-align:center;">
         {body_text}
       </p>
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
       <tr>
-        <td style="background-color:{primary};border-radius:{btn_radius}px;">
-          <a href="{cta_url}" style="display:inline-block;padding:14px 32px;font-family:{font_family},Arial,sans-serif;font-size:16px;font-weight:600;color:{btn_text_color};text-decoration:none;border-radius:{btn_radius}px;">
+        <td align="center" style="background-color:{primary};border-radius:{btn_radius}px;mso-padding-alt:14px 32px;">
+          <a href="{cta_url}" target="_blank" style="display:inline-block;padding:14px 40px;font-family:{font_family},Arial,sans-serif;font-size:16px;font-weight:700;color:{btn_text_color};text-decoration:none;border-radius:{btn_radius}px;background-color:{primary};text-align:center;min-width:180px;">
             {cta_text}
           </a>
         </td>
