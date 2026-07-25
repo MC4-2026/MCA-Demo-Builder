@@ -8,9 +8,12 @@ _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
 
 import os
 import re
+import io
 import json
 import sys
 import uuid
+import zipfile
+import base64
 import colorsys
 import threading
 from datetime import datetime
@@ -2540,45 +2543,77 @@ def deploy_email_series():
 
         if flow_data:
             try:
-                # Deploy flow via Tooling API
+                # Deploy flow via Metadata API (zip deploy)
                 flow_xml = flow_data['xml']
                 flow_api_name = flow_data['flowApiName']
 
-                tooling_resp = requests.post(
-                    f"{instance}/services/data/v66.0/tooling/sobjects/Flow",
+                # Build a zip with package.xml and the flow file
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    package_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>''' + flow_api_name + '''</members>
+        <name>Flow</name>
+    </types>
+    <version>66.0</version>
+</Package>'''
+                    zf.writestr('package.xml', package_xml)
+                    zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
+                zip_buffer.seek(0)
+                zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+
+                # Use Metadata API SOAP deploy
+                deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:met="http://soap.sforce.com/2006/04/metadata">
+  <soap:Header>
+    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
+  </soap:Header>
+  <soap:Body>
+    <met:deploy>
+      <met:ZipFile>{zip_b64}</met:ZipFile>
+      <met:DeployOptions>
+        <met:singlePackage>true</met:singlePackage>
+        <met:rollbackOnError>true</met:rollbackOnError>
+      </met:DeployOptions>
+    </met:deploy>
+  </soap:Body>
+</soap:Envelope>'''
+
+                deploy_resp = requests.post(
+                    f"{instance}/services/Soap/m/66.0",
                     headers={
-                        'Authorization': f'Bearer {token}',
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'text/xml; charset=utf-8',
+                        'SOAPAction': 'deploy'
                     },
-                    json={
-                        'FullName': flow_api_name,
-                        'Metadata': {
-                            'label': flow_data['flowLabel'],
-                            'processType': 'AutoLaunchedFlow',
-                            'status': 'Draft'
-                        },
-                        'Body': flow_xml
-                    },
-                    timeout=30
+                    data=deploy_soap.encode('utf-8'),
+                    timeout=60
                 )
 
-                if tooling_resp.status_code in (200, 201):
-                    tr = tooling_resp.json()
+                if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
+                    # Extract deploy ID from response
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(deploy_resp.text)
+                    ns = {'met': 'http://soap.sforce.com/2006/04/metadata',
+                          'soap': 'http://schemas.xmlsoap.org/soap/envelope/'}
+                    deploy_id_el = root.find('.//met:id', ns)
+                    deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
+
                     flow_result = {
-                        'id': tr.get('id', ''),
+                        'id': deploy_id,
                         'name': flow_data['flowLabel'],
                         'apiName': flow_api_name,
-                        'status': 'Draft'
+                        'status': 'Deploying'
                     }
                 else:
-                    errors.append(f"Flow creation failed: {tooling_resp.status_code} - {tooling_resp.text[:200]}")
-                    # Still return the XML so user can deploy manually
+                    errors.append(f"Flow creation failed: {deploy_resp.status_code} - {deploy_resp.text[:200]}")
                     flow_result = {
                         'xml': flow_xml,
                         'name': flow_data['flowLabel'],
                         'apiName': flow_api_name,
                         'status': 'NotDeployed',
-                        'error': f"API returned {tooling_resp.status_code}"
+                        'error': f"API returned {deploy_resp.status_code}"
                     }
             except Exception as fe:
                 errors.append(f"Flow deploy: {str(fe)[:150]}")
@@ -2663,77 +2698,87 @@ def deploy_email_series():
                     brief_fields['DICE_CBB_Updated_By__c'] = user_id
 
                 try:
-                    brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c',
-                                        token, instance, body=brief_fields)
-                    if brief_resp.status_code in (200, 201):
-                        brief_id = brief_resp.json().get('id', '')
-                        campaign_result['briefId'] = brief_id
-                        campaign_result['briefName'] = brief_fields['Name']
+                    # Check if Campaign Brief object exists on this org
+                    brief_describe = sf_api('GET', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c/describe',
+                                            token, instance)
+                    # Check if Campaign Brief object exists on this org
+                    brief_describe = sf_api('GET', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c/describe',
+                                            token, instance)
+                    if brief_describe.status_code == 404:
+                        campaign_result['briefSkipped'] = True
+                        campaign_result['briefNote'] = 'Campaign Brief Builder not installed on this org'
+                    else:
+                        brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c',
+                                            token, instance, body=brief_fields)
+                        if brief_resp.status_code in (200, 201):
+                            brief_id = brief_resp.json().get('id', '')
+                            campaign_result['briefId'] = brief_id
+                            campaign_result['briefName'] = brief_fields['Name']
 
-                        # 4d: Link Freeform template module + create HTML version
-                        try:
-                            tmpl_resp = sf_api('GET',
-                                '/services/data/v66.0/query/?q=' +
-                                quote("SELECT Id FROM DICE_CBB_CampaignTemplateModule__c WHERE Name = 'Freeform' LIMIT 1"),
-                                token, instance)
-                            if tmpl_resp.ok:
-                                tmpl_records = tmpl_resp.json().get('records', [])
-                                if tmpl_records:
-                                    template_id = tmpl_records[0]['Id']
+                            # 4d: Link Freeform template module + create HTML version
+                            try:
+                                tmpl_resp = sf_api('GET',
+                                    '/services/data/v66.0/query/?q=' +
+                                    quote("SELECT Id FROM DICE_CBB_CampaignTemplateModule__c WHERE Name = 'Freeform' LIMIT 1"),
+                                    token, instance)
+                                if tmpl_resp.ok:
+                                    tmpl_records = tmpl_resp.json().get('records', [])
+                                    if tmpl_records:
+                                        template_id = tmpl_records[0]['Id']
 
-                                    # Create junction record
-                                    junc_resp = sf_api('POST',
-                                        '/services/data/v66.0/sobjects/DICE_CBB_CampaignBriefSelectedModule__c',
-                                        token, instance, body={
-                                            'DICE_CBB_Campaign_Brief__c': brief_id,
-                                            'DICE_CBB_Campaign_Template_Module__c': template_id,
-                                            'DICE_CBB_Order_Index__c': 0
-                                        })
-
-                                    if junc_resp.status_code in (200, 201):
-                                        selected_module_id = junc_resp.json().get('id', '')
-
-                                        # Build HTML summary for the brief module
-                                        primary_color = colors[0]['hex'] if colors else '#0176d3'
-                                        email_list_html = ''.join(
-                                            f"<li style='margin-bottom:8px'><strong>Email {i+1}:</strong> {s}</li>"
-                                            for i, s in enumerate(subject_lines)
-                                        )
-                                        brief_html = (
-                                            f"<div style='max-width:600px;margin:0 auto;font-family:Arial,sans-serif;padding:30px'>"
-                                            f"<h1 style='color:{primary_color};margin-bottom:10px'>{brand_name}</h1>"
-                                            f"<h2 style='color:#333;margin-bottom:20px'>{series['name']}</h2>"
-                                            f"<p style='color:#555;line-height:1.6;margin-bottom:20px'>{identity or series['description']}</p>"
-                                            f"<h3 style='color:{primary_color};margin-bottom:10px'>Email Series ({len(subject_lines)} emails)</h3>"
-                                            f"<ul style='color:#333;line-height:1.8;padding-left:20px'>{email_list_html}</ul>"
-                                            f"<hr style='border:1px solid #eee;margin:20px 0'>"
-                                            f"<p style='color:#888;font-size:13px'>"
-                                            f"<strong>Tone:</strong> {tone_label} | "
-                                            f"<strong>Channel:</strong> Email | "
-                                            f"<strong>Industry:</strong> {industry or 'General'}</p>"
-                                            f"</div>"
-                                        )
-
-                                        # Create module version via REST
-                                        ver_resp = sf_api('POST',
-                                            '/services/data/v66.0/sobjects/DICE_CBB_BriefModuleVersion__c',
+                                        # Create junction record
+                                        junc_resp = sf_api('POST',
+                                            '/services/data/v66.0/sobjects/DICE_CBB_CampaignBriefSelectedModule__c',
                                             token, instance, body={
-                                                'DICE_CBB_Selected_Module__c': selected_module_id,
-                                                'DICE_CBB_HTML__c': brief_html,
-                                                'DICE_CBB_Version_Number__c': 1,
-                                                'DICE_CBB_Is_Active__c': True,
-                                                'DICE_CBB_Created_Date__c': today_str,
-                                                'DICE_CBB_Created_By__c': user_id or None
+                                                'DICE_CBB_Campaign_Brief__c': brief_id,
+                                                'DICE_CBB_Campaign_Template_Module__c': template_id,
+                                                'DICE_CBB_Order_Index__c': 0
                                             })
 
-                                        if ver_resp.status_code in (200, 201):
-                                            campaign_result['briefModuleCreated'] = True
-                                        else:
-                                            errors.append(f"Brief module version: {ver_resp.status_code}")
-                        except Exception as me:
-                            errors.append(f"Brief module: {str(me)[:100]}")
-                    else:
-                        errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
+                                        if junc_resp.status_code in (200, 201):
+                                            selected_module_id = junc_resp.json().get('id', '')
+
+                                            # Build HTML summary for the brief module
+                                            primary_color = colors[0]['hex'] if colors else '#0176d3'
+                                            email_list_html = ''.join(
+                                                f"<li style='margin-bottom:8px'><strong>Email {i+1}:</strong> {s}</li>"
+                                                for i, s in enumerate(subject_lines)
+                                            )
+                                            brief_html = (
+                                                f"<div style='max-width:600px;margin:0 auto;font-family:Arial,sans-serif;padding:30px'>"
+                                                f"<h1 style='color:{primary_color};margin-bottom:10px'>{brand_name}</h1>"
+                                                f"<h2 style='color:#333;margin-bottom:20px'>{series['name']}</h2>"
+                                                f"<p style='color:#555;line-height:1.6;margin-bottom:20px'>{identity or series['description']}</p>"
+                                                f"<h3 style='color:{primary_color};margin-bottom:10px'>Email Series ({len(subject_lines)} emails)</h3>"
+                                                f"<ul style='color:#333;line-height:1.8;padding-left:20px'>{email_list_html}</ul>"
+                                                f"<hr style='border:1px solid #eee;margin:20px 0'>"
+                                                f"<p style='color:#888;font-size:13px'>"
+                                                f"<strong>Tone:</strong> {tone_label} | "
+                                                f"<strong>Channel:</strong> Email | "
+                                                f"<strong>Industry:</strong> {industry or 'General'}</p>"
+                                                f"</div>"
+                                            )
+
+                                            # Create module version via REST
+                                            ver_resp = sf_api('POST',
+                                                '/services/data/v66.0/sobjects/DICE_CBB_BriefModuleVersion__c',
+                                                token, instance, body={
+                                                    'DICE_CBB_Selected_Module__c': selected_module_id,
+                                                    'DICE_CBB_HTML__c': brief_html,
+                                                    'DICE_CBB_Version_Number__c': 1,
+                                                    'DICE_CBB_Is_Active__c': True,
+                                                    'DICE_CBB_Created_Date__c': today_str,
+                                                    'DICE_CBB_Created_By__c': user_id or None
+                                                })
+
+                                            if ver_resp.status_code in (200, 201):
+                                                campaign_result['briefModuleCreated'] = True
+                                            else:
+                                                errors.append(f"Brief module version: {ver_resp.status_code}")
+                            except Exception as me:
+                                errors.append(f"Brief module: {str(me)[:100]}")
+                        else:
+                            errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
                 except Exception as be:
                     errors.append(f"Campaign Brief: {str(be)[:150]}")
             else:

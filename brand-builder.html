@@ -2099,6 +2099,7 @@ async function executeEmailDeploy() {
       if (r.type === 'campaign') {
         resultHtml += `<div>🎯 Campaign: <strong>${r.name}</strong>`;
         if (r.briefName) resultHtml += ` — Brief: <strong>${r.briefName}</strong>`;
+        else if (r.briefSkipped) resultHtml += ` <span class="text-muted text-xs">(Brief skipped — not installed on org)</span>`;
         resultHtml += `</div>`;
       } else if (r.type === 'flow') {
         resultHtml += `<div>📋 Flow: <strong>${r.name}</strong> (${r.status})</div>`;
