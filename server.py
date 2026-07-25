@@ -2107,9 +2107,8 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
     flow_label = f"{brand_name} {series_name}"
     flow_api_name = re.sub(r'[^A-Za-z0-9_]', '_', flow_label).replace('__', '_')
 
-    # Build action calls and waits
+    # Build action calls (waits must be added via Flow Builder UI after deployment)
     action_calls_xml = ''
-    waits_xml = ''
     num_emails = min(len(email_content_keys), len(series['emails']))
 
     for i in range(num_emails):
@@ -2118,10 +2117,12 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         action_name = f"Send_Email_{i + 1}"
         y_offset = 278 + (i * 240)
 
-        # Determine next element connector
+        # Determine next element connector (chain directly to next email action)
+        # Note: Wait elements cannot be deployed via metadata XML — they must be added
+        # via Flow Builder UI after deployment. We chain emails directly here.
         if i < num_emails - 1:
-            wait_name = f"Wait_After_Email_{i + 1}"
-            next_ref = f"<connector><targetReference>{wait_name}</targetReference></connector>"
+            next_action = f"Send_Email_{i + 2}"
+            next_ref = f"<connector><targetReference>{next_action}</targetReference></connector>"
         else:
             next_ref = ''  # Last email has no connector (flow ends)
 
@@ -2185,36 +2186,15 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         <offset>0</offset>
     </actionCalls>'''
 
-        # Add wait element between emails (not after the last one)
-        if i < num_emails - 1:
-            wait_name = f"Wait_After_Email_{i + 1}"
-            next_action = f"Send_Email_{i + 2}"
-            wait_y = y_offset + 120
-
-            waits_xml += f'''
-    <waits>
-        <name>{wait_name}</name>
-        <label>Wait {wait_days} Day{"s" if wait_days != 1 else ""}</label>
-        <locationX>176</locationX>
-        <locationY>{wait_y}</locationY>
-        <elementSubtype>WaitDuration</elementSubtype>
-        <connector>
-            <targetReference>{next_action}</targetReference>
-        </connector>
-        <defaultConnector>
-            <targetReference>{next_action}</targetReference>
-        </defaultConnector>
-        <waitDurationValue>
-            <numberValue>{wait_days}.0</numberValue>
-        </waitDurationValue>
-        <waitDurationUnit>Days</waitDurationUnit>
-    </waits>'''
+        # Note: Wait-for-Amount-of-Time elements cannot be deployed via Metadata API.
+        # They must be added via Flow Builder UI after the flow is deployed.
+        # The flow is deployed with emails chained directly — user adds waits in UI.
 
     # Segment element
     segment_xml = f'<segment>{segment_id}</segment>' if segment_id else '<segment></segment>'
 
     flow_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Flow xmlns="http://soap.sforce.com/2006/04/metadata">{action_calls_xml}{waits_xml}
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">{action_calls_xml}
     <apiVersion>67.0</apiVersion>
     <areMetricsLoggedToDataCloud>true</areMetricsLoggedToDataCloud>
     <dataSpace>default</dataSpace>
@@ -2647,7 +2627,8 @@ def _deploy_email_series_internal(token, instance, data):
                             'id': deploy_id,
                             'name': flow_data['flowLabel'],
                             'apiName': flow_api_name,
-                            'status': 'Deployed'
+                            'status': 'Deployed',
+                            'waitNote': f'Open in Flow Builder to add {EMAIL_SERIES[series_key]["wait_days"]}-day wait elements between emails'
                         }
                     elif deploy_status == 'Failed':
                         errors.append(f"Flow deploy failed: {deploy_error_msg}")

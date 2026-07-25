@@ -1533,6 +1533,7 @@ function showDeploySuccess(config, result) {
         else if (sr.flow.status === 'Failed') { flowIcon = '❌'; flowLabel = 'Flow failed'; }
         else if (sr.flow.status && sr.flow.status.startsWith('Deploying')) { flowIcon = '⏳'; flowLabel = 'Flow deploying'; }
         detailHtml += `<div>${flowIcon} ${flowLabel}: <strong>${sr.flow.name || ''}</strong></div>`;
+        if (sr.flow.waitNote) detailHtml += `<div class="text-amber-600 text-xs ml-4">⏱️ ${sr.flow.waitNote}</div>`;
         if (sr.flow.error) detailHtml += `<div class="text-error text-xs ml-4">${sr.flow.error}</div>`;
       }
       if (sr.campaign) {
