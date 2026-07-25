@@ -2521,35 +2521,9 @@ def _deploy_email_series_internal(token, instance, data):
     if create_flow and len(created_emails) > 0:
         email_content_keys = [e['contentKey'] for e in created_emails]
 
-        # Discover org-specific data graph and DMO names for the flow
-        discovered_data_graph = 'Marketing_Data_Graph'
-        discovered_dmo = 'UnifiedssotIndividualInd1__dlm'
-        try:
-            # Query data graph via Tooling API
-            dg_resp = requests.get(
-                f"{instance}/services/data/v67.0/tooling/query/",
-                params={'q': "SELECT DeveloperName FROM DataGraphDefinition WHERE DeveloperName LIKE '%Marketing%' LIMIT 1"},
-                headers={'Authorization': f'Bearer {token}'}
-            )
-            if dg_resp.status_code == 200:
-                dg_records = dg_resp.json().get('records', [])
-                if dg_records:
-                    discovered_data_graph = dg_records[0]['DeveloperName']
-
-            # Query DMO - look for unified individual entities
-            dmo_resp = requests.get(
-                f"{instance}/services/data/v67.0/sobjects",
-                headers={'Authorization': f'Bearer {token}'}
-            )
-            if dmo_resp.status_code == 200:
-                sobjects = dmo_resp.json().get('sobjects', [])
-                for obj in sobjects:
-                    name = obj.get('name', '')
-                    if name.startswith('Unifiedssot') and 'Individual' in name and name.endswith('__dlm'):
-                        discovered_dmo = name
-                        break
-        except Exception as disc_err:
-            errors.append(f"Org discovery warning (using defaults): {str(disc_err)[:100]}")
+        # Use pre-discovered org-specific data graph and DMO (passed from deploy_all)
+        discovered_data_graph = data.get('dataGraph', 'Marketing_Data_Graph')
+        discovered_dmo = data.get('dmoObject', 'UnifiedssotIndividualInd1__dlm')
 
         flow_data = generate_flow_xml(
             series_key, email_content_keys, config,
@@ -2611,10 +2585,10 @@ def _deploy_email_series_internal(token, instance, data):
                     deploy_id_el = root.find('.//met:id', ns)
                     deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
 
-                    # Poll checkDeployStatus until done (max 4 attempts × 2s = 8s)
+                    # Poll checkDeployStatus until done (max 2 attempts × 2s = 4s to stay under Heroku 30s)
                     deploy_status = 'InProgress'
                     deploy_error_msg = ''
-                    for _poll in range(4):
+                    for _poll in range(2):
                         time.sleep(2)
                         check_soap = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
@@ -2881,6 +2855,40 @@ def deploy_all():
     if brand_result.get('errors'):
         results['errors'].extend(brand_result['errors'])
 
+    # Pre-discover org-specific flow metadata (data graph + DMO) once for all series
+    org_data_graph = 'Marketing_Data_Graph'
+    org_dmo = 'UnifiedssotIndividualInd1__dlm'
+    if email_series_list:
+        try:
+            headers = {'Authorization': f'Bearer {token}'}
+            dg_resp = requests.get(
+                f"{instance}/services/data/v67.0/tooling/query/",
+                params={'q': "SELECT DeveloperName FROM DataGraphDefinition LIMIT 5"},
+                headers=headers, timeout=5
+            )
+            if dg_resp.status_code == 200:
+                for rec in dg_resp.json().get('records', []):
+                    name = rec.get('DeveloperName', '')
+                    if 'Marketing' in name or 'marketing' in name:
+                        org_data_graph = name
+                        break
+                else:
+                    recs = dg_resp.json().get('records', [])
+                    if recs:
+                        org_data_graph = recs[0]['DeveloperName']
+
+            dmo_resp = requests.get(
+                f"{instance}/services/data/v67.0/tooling/query/",
+                params={'q': "SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName LIKE 'Unifiedssot%Individual%dlm' LIMIT 1"},
+                headers=headers, timeout=5
+            )
+            if dmo_resp.status_code == 200:
+                dmo_recs = dmo_resp.json().get('records', [])
+                if dmo_recs:
+                    org_dmo = dmo_recs[0]['QualifiedApiName']
+        except Exception:
+            pass  # Use defaults
+
     # Step 2: Deploy each selected email series
     for series_key in email_series_list:
         series_emails = email_data.get(series_key, [])
@@ -2900,7 +2908,9 @@ def deploy_all():
             'createFlow': email_config.get('createFlow', True),
             'createCampaign': email_config.get('createCampaign', True),
             'headerColor': email_config.get('headerColor', None),
-            'brandContentId': brand_result.get('brandId', '')
+            'brandContentId': brand_result.get('brandId', ''),
+            'dataGraph': org_data_graph,
+            'dmoObject': org_dmo
         }
 
         series_result = _deploy_email_series_internal(token, instance, series_data)
