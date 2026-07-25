@@ -656,6 +656,15 @@
             </div>
           </label>
 
+          <!-- Create Campaign & Brief Toggle -->
+          <label class="flex items-center gap-3 p-3 bg-surface rounded-lg cursor-pointer">
+            <input type="checkbox" id="emailDeployCreateCampaign" checked class="accent-primary">
+            <div>
+              <span class="block text-sm font-medium text-secondary">Create Campaign & Brief</span>
+              <span class="text-xs text-muted">Creates an MCA Campaign with a Campaign Brief summarizing the email series</span>
+            </div>
+          </label>
+
           <!-- Deploy Progress -->
           <div id="emailDeployProgress" class="hidden">
             <div class="flex items-center gap-3">
@@ -1998,6 +2007,7 @@ async function executeEmailDeploy() {
   const channelTypeId = document.getElementById('emailDeployChan').value;
   const segmentId = document.getElementById('emailDeploySegment').value;
   const createFlow = document.getElementById('emailDeployCreateFlow').checked;
+  const createCampaign = document.getElementById('emailDeployCreateCampaign').checked;
 
   const config = gatherFinalConfig();
 
@@ -2026,7 +2036,7 @@ async function executeEmailDeploy() {
   let allErrors = [];
 
   for (const sk of seriesToDeploy) {
-    statusEl.textContent = `Deploying ${sk} series... Creating emails and flow...`;
+    statusEl.textContent = `Deploying ${sk} series... Creating emails${createFlow ? ', flow' : ''}${createCampaign ? ', campaign & brief' : ''}...`;
 
     const seriesEmails = emailSeriesState.series[sk].emails.map(e => ({
       copy: e,
@@ -2049,6 +2059,7 @@ async function executeEmailDeploy() {
           subscriptionId,
           channelTypeId,
           createFlow,
+          createCampaign,
           headerColor: emailSeriesState.headerColor
         })
       });
@@ -2067,6 +2078,7 @@ async function executeEmailDeploy() {
 
       if (data.emails) allResults.push(...data.emails.map(e => ({ ...e, series: sk })));
       if (data.flow) allResults.push({ type: 'flow', series: sk, ...data.flow });
+      if (data.campaign) allResults.push({ type: 'campaign', series: sk, ...data.campaign });
       if (data.errors && data.errors.length > 0) allErrors.push(...data.errors);
     } catch (err) {
       allErrors.push(`${sk} series: ${err.message}`);
@@ -2084,7 +2096,11 @@ async function executeEmailDeploy() {
     resultHtml += '<div class="text-success font-semibold mb-2">✅ Deployment Complete</div>';
     resultHtml += '<div class="space-y-1 text-sm">';
     allResults.forEach(r => {
-      if (r.type === 'flow') {
+      if (r.type === 'campaign') {
+        resultHtml += `<div>🎯 Campaign: <strong>${r.name}</strong>`;
+        if (r.briefName) resultHtml += ` — Brief: <strong>${r.briefName}</strong>`;
+        resultHtml += `</div>`;
+      } else if (r.type === 'flow') {
         resultHtml += `<div>📋 Flow: <strong>${r.name}</strong> (${r.status})</div>`;
       } else {
         resultHtml += `<div>📧 Email: <strong>${r.name}</strong></div>`;

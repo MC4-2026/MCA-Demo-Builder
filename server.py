@@ -13,6 +13,7 @@ import sys
 import uuid
 import colorsys
 import threading
+from datetime import datetime
 from collections import Counter
 from urllib.parse import urljoin, urlparse, quote
 
@@ -2433,6 +2434,7 @@ def deploy_email_series():
     subscription_id = data.get('subscriptionId', '')
     channel_type_id = data.get('channelTypeId', '')
     create_flow = data.get('createFlow', True)
+    create_campaign = data.get('createCampaign', True)
     header_color = data.get('headerColor', None)
 
     if series_key not in EMAIL_SERIES:
@@ -2602,10 +2604,163 @@ def deploy_email_series():
                     'error': str(fe)[:150]
                 }
 
+    # Step 4: Create Campaign + Campaign Brief if requested
+    campaign_result = None
+    if create_campaign and len(created_emails) > 0:
+        series = EMAIL_SERIES[series_key]
+        campaign_name = f"{brand_name} {series['name']}"
+        today_str = datetime.now().strftime('%Y-%m-%d')
+
+        try:
+            # 4a: Create Campaign record
+            camp_resp = sf_api('POST', '/services/data/v66.0/sobjects/Campaign', token, instance, body={
+                'Name': campaign_name,
+                'Type': 'Email',
+                'Status': 'Planned',
+                'IsActive': True,
+                'Description': f"{brand_name} - {series['description']}"
+            })
+            if camp_resp.status_code in (200, 201):
+                campaign_id = camp_resp.json().get('id', '')
+
+                campaign_result = {
+                    'id': campaign_id,
+                    'name': campaign_name,
+                    'status': 'Created'
+                }
+
+                # 4b: Get current user ID for brief
+                user_id = ''
+                try:
+                    user_resp = sf_api('GET', '/services/data/v66.0/chatter/users/me', token, instance)
+                    if user_resp.ok:
+                        user_id = user_resp.json().get('id', '')
+                except Exception:
+                    pass
+
+                # 4c: Build brief fields from brand config + email copy
+                tone = config.get('tone', {})
+                tone_label = tone.get('label', 'Professional') if isinstance(tone, dict) else str(tone)
+                identity = config.get('identity', '')
+                colors = config.get('colors', [])
+                industry = config.get('industry', '')
+
+                # Collect subject lines and CTAs from the emails
+                subject_lines = []
+                cta_texts = []
+                for em in emails:
+                    c = em.get('copy', {})
+                    if c.get('subject'):
+                        subject_lines.append(c['subject'])
+                    if c.get('cta_text'):
+                        cta_texts.append(c['cta_text'])
+
+                brief_fields = {
+                    'Name': f"{brand_name} {series['name']} Brief",
+                    'DICE_CBB_Campaign__c': campaign_id,
+                    'DICE_CBB_Brand_Voice__c': tone_label,
+                    'DICE_CBB_Channels__c': 'Email',
+                    'DICE_CBB_Description__c': identity or f"{brand_name} email campaign",
+                    'DICE_CBB_Key_Messages__c': '\n'.join(subject_lines) if subject_lines else brand_name,
+                    'DICE_CBB_Subject_Line_Options__c': '\n'.join(subject_lines) if subject_lines else '',
+                    'DICE_CBB_CTAs__c': '\n'.join(cta_texts) if cta_texts else '',
+                    'DICE_CBB_Target_Audience__c': industry or 'General audience',
+                    'DICE_CBB_Status__c': 'Draft',
+                    'DICE_CBB_Updated_Date__c': today_str,
+                }
+
+                if series_key == 'nurture':
+                    brief_fields['DICE_CBB_Objectives__c'] = 'Drive engagement\nIncrease conversions\nBuild brand awareness'
+                else:
+                    brief_fields['DICE_CBB_Objectives__c'] = 'Onboard new customers\nDrive product adoption\nBuild relationship'
+
+                if user_id:
+                    brief_fields['DICE_CBB_Updated_By__c'] = user_id
+
+                try:
+                    brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/DICE_CBB_CampaignBrief__c',
+                                        token, instance, body=brief_fields)
+                    if brief_resp.status_code in (200, 201):
+                        brief_id = brief_resp.json().get('id', '')
+                        campaign_result['briefId'] = brief_id
+                        campaign_result['briefName'] = brief_fields['Name']
+
+                        # 4d: Link Freeform template module + create HTML version
+                        try:
+                            tmpl_resp = sf_api('GET',
+                                '/services/data/v66.0/query/?q=' +
+                                quote("SELECT Id FROM DICE_CBB_CampaignTemplateModule__c WHERE Name = 'Freeform' LIMIT 1"),
+                                token, instance)
+                            if tmpl_resp.ok:
+                                tmpl_records = tmpl_resp.json().get('records', [])
+                                if tmpl_records:
+                                    template_id = tmpl_records[0]['Id']
+
+                                    # Create junction record
+                                    junc_resp = sf_api('POST',
+                                        '/services/data/v66.0/sobjects/DICE_CBB_CampaignBriefSelectedModule__c',
+                                        token, instance, body={
+                                            'DICE_CBB_Campaign_Brief__c': brief_id,
+                                            'DICE_CBB_Campaign_Template_Module__c': template_id,
+                                            'DICE_CBB_Order_Index__c': 0
+                                        })
+
+                                    if junc_resp.status_code in (200, 201):
+                                        selected_module_id = junc_resp.json().get('id', '')
+
+                                        # Build HTML summary for the brief module
+                                        primary_color = colors[0]['hex'] if colors else '#0176d3'
+                                        email_list_html = ''.join(
+                                            f"<li style='margin-bottom:8px'><strong>Email {i+1}:</strong> {s}</li>"
+                                            for i, s in enumerate(subject_lines)
+                                        )
+                                        brief_html = (
+                                            f"<div style='max-width:600px;margin:0 auto;font-family:Arial,sans-serif;padding:30px'>"
+                                            f"<h1 style='color:{primary_color};margin-bottom:10px'>{brand_name}</h1>"
+                                            f"<h2 style='color:#333;margin-bottom:20px'>{series['name']}</h2>"
+                                            f"<p style='color:#555;line-height:1.6;margin-bottom:20px'>{identity or series['description']}</p>"
+                                            f"<h3 style='color:{primary_color};margin-bottom:10px'>Email Series ({len(subject_lines)} emails)</h3>"
+                                            f"<ul style='color:#333;line-height:1.8;padding-left:20px'>{email_list_html}</ul>"
+                                            f"<hr style='border:1px solid #eee;margin:20px 0'>"
+                                            f"<p style='color:#888;font-size:13px'>"
+                                            f"<strong>Tone:</strong> {tone_label} | "
+                                            f"<strong>Channel:</strong> Email | "
+                                            f"<strong>Industry:</strong> {industry or 'General'}</p>"
+                                            f"</div>"
+                                        )
+
+                                        # Create module version via REST
+                                        ver_resp = sf_api('POST',
+                                            '/services/data/v66.0/sobjects/DICE_CBB_BriefModuleVersion__c',
+                                            token, instance, body={
+                                                'DICE_CBB_Selected_Module__c': selected_module_id,
+                                                'DICE_CBB_HTML__c': brief_html,
+                                                'DICE_CBB_Version_Number__c': 1,
+                                                'DICE_CBB_Is_Active__c': True,
+                                                'DICE_CBB_Created_Date__c': today_str,
+                                                'DICE_CBB_Created_By__c': user_id or None
+                                            })
+
+                                        if ver_resp.status_code in (200, 201):
+                                            campaign_result['briefModuleCreated'] = True
+                                        else:
+                                            errors.append(f"Brief module version: {ver_resp.status_code}")
+                        except Exception as me:
+                            errors.append(f"Brief module: {str(me)[:100]}")
+                    else:
+                        errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
+                except Exception as be:
+                    errors.append(f"Campaign Brief: {str(be)[:150]}")
+            else:
+                errors.append(f"Campaign creation: {camp_resp.status_code} - {camp_resp.text[:200]}")
+        except Exception as ce:
+            errors.append(f"Campaign: {str(ce)[:150]}")
+
     return jsonify({
         'success': len(created_emails) > 0,
         'emails': created_emails,
         'flow': flow_result,
+        'campaign': campaign_result,
         'errors': errors,
         'totalCreated': len(created_emails)
     })
