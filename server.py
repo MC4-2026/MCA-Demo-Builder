@@ -2316,8 +2316,12 @@ def get_consent_config():
         resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
                        quote("SELECT Id, Address, DisplayName FROM OrgWideEmailAddress ORDER BY DisplayName"),
                        token, instance)
-        result['senders'] = [{'id': r['Id'], 'label': f"{r['DisplayName']} <{r['Address']}>"} for r in resp.get('records', [])]
-    except:
+        if resp.ok:
+            records = resp.json().get('records', [])
+            result['senders'] = [{'id': r['Id'], 'label': f"{r['DisplayName']} <{r['Address']}>"} for r in records]
+        else:
+            result['senders'] = []
+    except Exception:
         result['senders'] = []
 
     # CommSubscription (communication subscriptions)
@@ -2325,8 +2329,12 @@ def get_consent_config():
         resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
                        quote("SELECT Id, Name FROM CommSubscription ORDER BY Name"),
                        token, instance)
-        result['subscriptions'] = [{'id': r['Id'], 'name': r['Name']} for r in resp.get('records', [])]
-    except:
+        if resp.ok:
+            records = resp.json().get('records', [])
+            result['subscriptions'] = [{'id': r['Id'], 'name': r['Name']} for r in records]
+        else:
+            result['subscriptions'] = []
+    except Exception:
         result['subscriptions'] = []
 
     # CommSubscriptionChannelType (channel types)
@@ -2334,8 +2342,12 @@ def get_consent_config():
         resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
                        quote("SELECT Id, Name, CommunicationSubscriptionId FROM CommSubscriptionChannelType ORDER BY Name"),
                        token, instance)
-        result['channelTypes'] = [{'id': r['Id'], 'name': r['Name'], 'subscriptionId': r['CommunicationSubscriptionId']} for r in resp.get('records', [])]
-    except:
+        if resp.ok:
+            records = resp.json().get('records', [])
+            result['channelTypes'] = [{'id': r['Id'], 'name': r['Name'], 'subscriptionId': r['CommunicationSubscriptionId']} for r in records]
+        else:
+            result['channelTypes'] = []
+    except Exception:
         result['channelTypes'] = []
 
     # MarketSegment (available segments)
@@ -2343,8 +2355,12 @@ def get_consent_config():
         resp = sf_api('GET', '/services/data/v66.0/query/?q=' +
                        quote("SELECT Id, Name, Status FROM MarketSegment WHERE Status = 'Published' ORDER BY Name"),
                        token, instance)
-        result['segments'] = [{'id': r['Id'], 'name': r['Name']} for r in resp.get('records', [])]
-    except:
+        if resp.ok:
+            records = resp.json().get('records', [])
+            result['segments'] = [{'id': r['Id'], 'name': r['Name']} for r in records]
+        else:
+            result['segments'] = []
+    except Exception:
         result['segments'] = []
 
     return jsonify(result)
