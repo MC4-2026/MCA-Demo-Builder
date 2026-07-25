@@ -2181,8 +2181,6 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
             <name>openTracking</name>
             <value><booleanValue>true</booleanValue></value>
         </inputParameters>{sub_params}
-        <inputParameters><name>outreachSourceCodeId</name></inputParameters>
-        <inputParameters><name>selectedOfferIds</name></inputParameters>
         <nameSegment>sendEmailMessage</nameSegment>
         <offset>0</offset>
     </actionCalls>'''
@@ -2761,6 +2759,13 @@ def _deploy_email_series_internal(token, instance, data):
                         brief_id = brief_resp.json().get('id', '')
                         campaign_result['briefId'] = brief_id
                         campaign_result['briefName'] = brief_fields['Name']
+
+                        # Link Brief to Campaign via Campaign.BriefId
+                        try:
+                            sf_api('PATCH', f'/services/data/v67.0/sobjects/Campaign/{campaign_id}',
+                                   token, instance, body={'BriefId': brief_id})
+                        except Exception:
+                            pass  # Non-critical — brief was still created
 
                         # Create BriefPlanSteps for each email in the series
                         for step_idx, em in enumerate(emails):
