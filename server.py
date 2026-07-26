@@ -2594,7 +2594,7 @@ def _deploy_email_series_internal(token, instance, data):
                     'name': flow_data['flowLabel'],
                     'apiName': flow_api_name,
                     'status': 'Deploying',
-                    'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                    'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
                 }
             except Exception as fe:
                 errors.append(f"Flow deploy: {str(fe)[:100]}")
