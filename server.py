@@ -2386,6 +2386,7 @@ def build_cms_email_content_json(email_html, subject, preheader, title='', brand
         "sfdc_cms:title": title or subject,
         "messagePurpose": "promotional",
         "lightning:brandSource": brand_source,
+        "backgroundColor": "{!$brand.colorScheme.root}" if brand_content_key else "#ffffff",
         "sfdc_cms:block": {
             "definition": "sfdc_cms/rootContentBlock",
             "id": block_id,
@@ -2396,7 +2397,13 @@ def build_cms_email_content_json(email_html, subject, preheader, title='', brand
                     "id": section_id,
                     "type": "block",
                     "attributes": {
-                        "stackOnMobile": True
+                        "stackOnMobile": True,
+                        "lightning:colorScheme": "{!$brand.colorScheme}" if brand_content_key else {},
+                        "lightning:backgroundImage": {
+                            "repeat": "no-repeat",
+                            "position": "center center",
+                            "size": "cover"
+                        }
                     },
                     "children": [
                         {
@@ -2404,7 +2411,13 @@ def build_cms_email_content_json(email_html, subject, preheader, title='', brand
                             "id": column_id,
                             "type": "block",
                             "attributes": {
-                                "columnWidth": 12.0
+                                "columnWidth": 12.0,
+                                "lightning:colorScheme": "{!$brand.colorScheme}" if brand_content_key else {},
+                                "lightning:backgroundImage": {
+                                    "repeat": "no-repeat",
+                                    "position": "center center",
+                                    "size": "cover"
+                                }
                             },
                             "children": [
                                 {
@@ -2723,6 +2736,40 @@ def _deploy_email_series_internal(token, instance, data):
                 errors.append(f"Campaign+Brief: {comp_resp.status_code} - {comp_resp.text[:200]}")
         except Exception as ce:
             errors.append(f"Campaign: {str(ce)[:150]}")
+
+    # Step 5: Link flow to campaign via FlowRecord.AssociatedRecordId
+    # Flow deploys async via SOAP, so FlowRecord may not exist yet — retry a few times
+    if flow_result and campaign_result and campaign_result.get('id') and flow_result.get('apiName'):
+        flow_api = flow_result['apiName']
+        camp_id = campaign_result['id']
+        linked = False
+        for attempt in range(4):
+            if attempt > 0:
+                import time
+                time.sleep(3)
+            try:
+                fr_resp = sf_api('GET',
+                    '/services/data/v67.0/query/?q=' + quote(
+                        f"SELECT Id FROM FlowRecord WHERE ApiName = '{flow_api}' ORDER BY CreatedDate DESC LIMIT 1"
+                    ), token, instance, timeout=8)
+                if fr_resp.ok:
+                    fr_records = fr_resp.json().get('records', [])
+                    if fr_records:
+                        flow_record_id = fr_records[0]['Id']
+                        link_resp = sf_api('PATCH',
+                            f'/services/data/v67.0/sobjects/FlowRecord/{flow_record_id}',
+                            token, instance, body={'AssociatedRecordId': camp_id})
+                        if link_resp.ok or link_resp.status_code == 204:
+                            flow_result['linkedToCampaign'] = True
+                            linked = True
+                            break
+                        else:
+                            errors.append(f"Flow-campaign link: {link_resp.status_code}")
+                            break
+            except Exception:
+                pass
+        if not linked and 'linkedToCampaign' not in (flow_result or {}):
+            errors.append("Flow-campaign link: FlowRecord not found after deploy (may still be processing)")
 
     return {
         'success': len(created_emails) > 0,
