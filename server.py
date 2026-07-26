@@ -2097,7 +2097,7 @@ def get_email_preview():
 def generate_flow_xml(series_key, email_content_keys, config, workspace_name='Default_Content_Workspace',
                       segment_id='', sender_id='', subscription_id='', channel_type_id='',
                       data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm'):
-    """Generate a segment-triggered MCA flow XML with sendEmailMessage actions (no waits - add via Flow Builder)."""
+    """Generate a segment-triggered Journey flow XML with sendEmailMessage actions and WaitDuration pauses."""
     series = EMAIL_SERIES.get(series_key)
     if not series:
         return None
@@ -2106,100 +2106,106 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
     series_name = series['name']
     wait_days = series['wait_days']
     flow_label = f"{brand_name} {series_name}"
+    flow_label_xml = flow_label.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     flow_api_name = re.sub(r'[^A-Za-z0-9_]', '_', flow_label).replace('__', '_')
 
-    # Build action calls (waits must be added via Flow Builder UI after deployment)
-    action_calls_xml = ''
     num_emails = min(len(email_content_keys), len(series['emails']))
+
+    # Helper: generate a clean API name for each email action
+    def _action_name(idx):
+        """Generate consistent action name like 'email_1_nurture' from index."""
+        return f"email_{idx + 1}_{series_key}"
+
+    # Build action calls with WaitDuration pauses between them
+    action_calls_xml = ''
+    waits_xml = ''
 
     for i in range(num_emails):
         email_key = email_content_keys[i]
         email_def = series['emails'][i]
-        action_name = f"Send_Email_{i + 1}"
-        y_offset = 278 + (i * 240)
+        action_name = _action_name(i)
+        # Use email name for label, escape XML special chars
+        raw_label = email_def.get('name', f'Email {i+1}')
+        email_label = raw_label.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
 
-        # Determine next element connector (chain directly to next email action)
-        # Note: Wait elements cannot be deployed via metadata XML — they must be added
-        # via Flow Builder UI after deployment. We chain emails directly here.
+        # Determine connector: email -> pause (if not last), or no connector (last email)
         if i < num_emails - 1:
-            next_action = f"Send_Email_{i + 2}"
-            next_ref = f"<connector><targetReference>{next_action}</targetReference></connector>"
+            pause_name = f"Pause_{i + 1}"
+            connector_xml = f'''
+        <connector>
+            <targetReference>{pause_name}</targetReference>
+        </connector>'''
         else:
-            next_ref = ''  # Last email has no connector (flow ends)
-
-        # Build sender params
-        sender_params = ''
-        if sender_id:
-            sender_params = f'''
-        <inputParameters>
-            <name>senderId</name>
-            <value><stringValue>{sender_id}</stringValue></value>
-        </inputParameters>'''
-
-        # Build subscription params
-        sub_params = ''
-        if subscription_id:
-            sub_params = f'''
-        <inputParameters>
-            <name>communicationSubscriptionId</name>
-            <value><stringValue>{subscription_id}</stringValue></value>
-        </inputParameters>'''
-        if channel_type_id:
-            sub_params += f'''
-        <inputParameters>
-            <name>commSubscriptionChannelTypeId</name>
-            <value><stringValue>{channel_type_id}</stringValue></value>
-        </inputParameters>'''
+            connector_xml = ''  # Last email has no connector (flow ends)
 
         content_id = f"marketing--{workspace_name}.sfdc_cms__email--{email_key}"
 
         action_calls_xml += f'''
     <actionCalls>
         <name>{action_name}</name>
-        <label>Send {series_name} Email {i + 1}</label>
-        <locationX>176</locationX>
-        <locationY>{y_offset}</locationY>
+        <label>{email_label}</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
         <actionName>sendEmailMessage</actionName>
-        <actionType>sendEmailMessage</actionType>
-        {next_ref}
+        <actionType>sendEmailMessage</actionType>{connector_xml}
         <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>clickTracking</name>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>openTracking</name>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </inputParameters>
         <inputParameters>
             <name>contentId</name>
             <value>
                 <stringValue>{content_id}</stringValue>
             </value>
         </inputParameters>
-        <inputParameters>
-            <name>isTemplate</name>
-            <value><booleanValue>false</booleanValue></value>
-        </inputParameters>{sender_params}
-        <inputParameters>
-            <name>clickTracking</name>
-            <value><booleanValue>true</booleanValue></value>
-        </inputParameters>
-        <inputParameters>
-            <name>openTracking</name>
-            <value><booleanValue>true</booleanValue></value>
-        </inputParameters>{sub_params}
         <nameSegment>sendEmailMessage</nameSegment>
-        <offset>0</offset>
     </actionCalls>'''
 
-        # Note: Wait-for-Amount-of-Time elements cannot be deployed via Metadata API.
-        # They must be added via Flow Builder UI after the flow is deployed.
-        # The flow is deployed with emails chained directly — user adds waits in UI.
+        # Add WaitDuration pause after each email except the last
+        if i < num_emails - 1:
+            pause_name = f"Pause_{i + 1}"
+            next_action_name = _action_name(i + 1)
+            days = wait_days if isinstance(wait_days, int) else wait_days[i] if isinstance(wait_days, list) and i < len(wait_days) else 3
 
-    # Segment element
-    segment_xml = f'<segment>{segment_id}</segment>' if segment_id else '<segment></segment>'
+            waits_xml += f'''
+    <waits>
+        <name>{pause_name}</name>
+        <elementSubtype>WaitDuration</elementSubtype>
+        <label>Wait_{days}_Days</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnectorLabel>Default Path</defaultConnectorLabel>
+        <waitEvents>
+            <conditionLogic>and</conditionLogic>
+            <connector>
+                <targetReference>{next_action_name}</targetReference>
+            </connector>
+            <label>el_{i}</label>
+            <offset>{days}</offset>
+            <offsetUnit>Days</offsetUnit>
+        </waitEvents>
+    </waits>'''
+
+    # First email action name for start connector
+    first_email_name = _action_name(0)
 
     flow_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">{action_calls_xml}
     <apiVersion>67.0</apiVersion>
-    <areMetricsLoggedToDataCloud>true</areMetricsLoggedToDataCloud>
+    <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
     <dataSpace>default</dataSpace>
     <environments>Default</environments>
-    <interviewLabel>{flow_label} {{!$Flow.CurrentDateTime}}</interviewLabel>
-    <label>{flow_label}</label>
+    <interviewLabel>{flow_label_xml} {{!$Flow.CurrentDateTime}}</interviewLabel>
+    <label>{flow_label_xml}</label>
     <processMetadataValues>
         <name>BuilderType</name>
         <value><stringValue>LightningFlowBuilder</stringValue></value>
@@ -2212,26 +2218,16 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         <name>OriginBuilderType</name>
         <value><stringValue>LightningFlowBuilder</stringValue></value>
     </processMetadataValues>
-    <processType>AutoLaunchedFlow</processType>
+    <processType>Journey</processType>
     <start>
-        <locationX>50</locationX>
+        <locationX>0</locationX>
         <locationY>0</locationY>
         <connector>
-            <targetReference>Send_Email_1</targetReference>
+            <targetReference>{first_email_name}</targetReference>
         </connector>
-        <dataGraph>{data_graph}</dataGraph>
-        <object>{dmo_object}</object>
-        <publishSegment>true</publishSegment>
-        <schedule>
-            <dayOfMonthToRun>0</dayOfMonthToRun>
-            <frequency>OnActivate</frequency>
-            <frequencyNumber>0</frequencyNumber>
-        </schedule>
-        {segment_xml}
         <triggerType>Segment</triggerType>
     </start>
-    <status>Draft</status>
-    <timeZoneSidKey>America/Los_Angeles</timeZoneSidKey>
+    <status>Draft</status>{waits_xml}
 </Flow>'''
 
     return {
@@ -2582,7 +2578,7 @@ def _deploy_email_series_internal(token, instance, data):
                         'name': flow_data['flowLabel'],
                         'apiName': flow_api_name,
                         'status': 'Deploying',
-                        'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                        'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
                     }
                 else:
                     errors.append(f"Flow submit: {deploy_resp.status_code}")
@@ -2824,7 +2820,7 @@ def deploy_flow():
                 'name': flow_data['flowLabel'],
                 'apiName': flow_api_name,
                 'status': 'Deploying',
-                'waitNote': f'Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
             })
         else:
             return jsonify({
