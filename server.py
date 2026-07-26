@@ -1232,7 +1232,7 @@ def build_brand_content_body(config):
     }
 
 
-def sf_api(method, path, access_token, instance_url, body=None, _retried=False):
+def sf_api(method, path, access_token, instance_url, body=None, _retried=False, timeout=15):
     """Make an authenticated Salesforce REST API call with auto-refresh on 401."""
     url = instance_url.rstrip('/') + path
     headers = {
@@ -1240,11 +1240,11 @@ def sf_api(method, path, access_token, instance_url, body=None, _retried=False):
         'Content-Type': 'application/json'
     }
     if method == 'GET':
-        resp = requests.get(url, headers=headers, timeout=30)
+        resp = requests.get(url, headers=headers, timeout=timeout)
     elif method == 'POST':
-        resp = requests.post(url, headers=headers, json=body, timeout=30)
+        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
     else:
-        resp = requests.request(method, url, headers=headers, json=body, timeout=30)
+        resp = requests.request(method, url, headers=headers, json=body, timeout=timeout)
 
     # Auto-refresh on 401 (expired token)
     if resp.status_code == 401 and not _retried:
@@ -2517,11 +2517,11 @@ def _deploy_email_series_internal(token, instance, data):
                 errors.append(f"Email publish: {str(pe)[:100]}")
 
     # Step 3: Create the flow if requested and we have emails
+    # Flow deploys via SOAP Metadata API in a BACKGROUND THREAD to avoid blocking
     flow_result = None
     if create_flow and len(created_emails) > 0:
         email_content_keys = [e['contentKey'] for e in created_emails]
 
-        # Use pre-discovered org-specific data graph and DMO (passed from deploy_all)
         discovered_data_graph = data.get('dataGraph', 'Marketing_Data_Graph')
         discovered_dmo = data.get('dmoObject', 'UnifiedssotIndividualInd1__dlm')
 
@@ -2532,13 +2532,14 @@ def _deploy_email_series_internal(token, instance, data):
         )
 
         if flow_data:
-            try:
-                flow_xml = flow_data['xml']
-                flow_api_name = flow_data['flowApiName']
+            flow_xml = flow_data['xml']
+            flow_api_name = flow_data['flowApiName']
+            wait_days = EMAIL_SERIES[series_key]['wait_days']
 
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    package_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+            # Build the SOAP payload now (fast, no network)
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                package_xml = '''<?xml version="1.0" encoding="UTF-8"?>
 <Package xmlns="http://soap.sforce.com/2006/04/metadata">
     <types>
         <members>''' + flow_api_name + '''</members>
@@ -2546,12 +2547,12 @@ def _deploy_email_series_internal(token, instance, data):
     </types>
     <version>67.0</version>
 </Package>'''
-                    zf.writestr('package.xml', package_xml)
-                    zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
-                zip_buffer.seek(0)
-                zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+                zf.writestr('package.xml', package_xml)
+                zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
+            zip_buffer.seek(0)
+            zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
 
-                deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
+            deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:met="http://soap.sforce.com/2006/04/metadata">
   <soap:Header>
@@ -2568,49 +2569,25 @@ def _deploy_email_series_internal(token, instance, data):
   </soap:Body>
 </soap:Envelope>'''
 
-                deploy_resp = requests.post(
-                    f"{instance}/services/Soap/m/67.0",
-                    headers={
-                        'Content-Type': 'text/xml; charset=utf-8',
-                        'SOAPAction': 'deploy'
-                    },
-                    data=deploy_soap.encode('utf-8'),
-                    timeout=10
-                )
+            # Fire SOAP deploy in background thread — don't wait for it
+            def _bg_flow_deploy(soap_data, inst):
+                try:
+                    requests.post(
+                        f"{inst}/services/Soap/m/67.0",
+                        headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
+                        data=soap_data, timeout=60
+                    )
+                except Exception:
+                    pass  # Best effort — flow deploys async on SF side
 
-                if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
-                    root = ET.fromstring(deploy_resp.text)
-                    ns = {'met': 'http://soap.sforce.com/2006/04/metadata',
-                          'soap': 'http://schemas.xmlsoap.org/soap/envelope/'}
-                    deploy_id_el = root.find('.//met:id', ns)
-                    deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
+            threading.Thread(target=_bg_flow_deploy, args=(deploy_soap.encode('utf-8'), instance), daemon=True).start()
 
-                    # Fire-and-forget: Salesforce deploys async — don't poll to stay under Heroku 30s
-                    wait_days = EMAIL_SERIES[series_key]['wait_days']
-                    flow_result = {
-                        'id': deploy_id,
-                        'name': flow_data['flowLabel'],
-                        'apiName': flow_api_name,
-                        'status': 'Deploying',
-                        'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
-                    }
-                else:
-                    errors.append(f"Flow creation failed: {deploy_resp.status_code} - {deploy_resp.text[:200]}")
-                    flow_result = {
-                        'xml': flow_xml,
-                        'name': flow_data['flowLabel'],
-                        'apiName': flow_api_name,
-                        'status': 'NotDeployed',
-                        'error': f"API returned {deploy_resp.status_code}"
-                    }
-            except Exception as fe:
-                errors.append(f"Flow deploy: {str(fe)[:150]}")
-                flow_result = {
-                    'xml': flow_data['xml'] if flow_data else '',
-                    'name': flow_data['flowLabel'] if flow_data else '',
-                    'status': 'NotDeployed',
-                    'error': str(fe)[:150]
-                }
+            flow_result = {
+                'name': flow_data['flowLabel'],
+                'apiName': flow_api_name,
+                'status': 'Deploying',
+                'waitNote': f'Flow is deploying to Salesforce (may take ~20s). Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+            }
 
     # Step 4: Create Campaign + Campaign Brief if requested
     campaign_result = None
@@ -2620,125 +2597,84 @@ def _deploy_email_series_internal(token, instance, data):
         today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
-            bu_id = ''
-            try:
-                bu_resp = sf_api('GET',
-                    '/services/data/v66.0/query/?q=' + quote("SELECT Id FROM BusinessUnit LIMIT 1"),
-                    token, instance)
-                if bu_resp.ok:
-                    bu_records = bu_resp.json().get('records', [])
-                    if bu_records:
-                        bu_id = bu_records[0]['Id']
-            except Exception:
-                pass
+            # Build all Campaign + Brief + BriefPlanSteps in ONE Composite API call
+            identity = config.get('identity', '')
+            industry = config.get('industry', '')
+            brand_content_id = data.get('brandContentId', '')
 
+            subject_lines = [em.get('copy', {}).get('subject', '') for em in emails if em.get('copy', {}).get('subject')]
+            cta_texts = [em.get('copy', {}).get('cta_text', '') for em in emails if em.get('copy', {}).get('cta_text')]
+
+            primary_goal = ('Drive engagement, increase conversions, and build brand awareness'
+                            if series_key == 'nurture' else
+                            'Onboard new customers, drive product adoption, and build relationship')
+
+            brief_name = f"{brand_name} {series['name']} Brief"
             camp_body = {
-                'Name': campaign_name,
-                'Type': 'Email',
-                'Status': 'Planned',
-                'IsActive': True,
-                'Description': f"{brand_name} - {series['description']}"
+                'Name': campaign_name, 'Type': 'Email', 'Status': 'Planned',
+                'IsActive': True, 'Description': f"{brand_name} - {series['description']}"
             }
-            if bu_id:
-                camp_body['BusinessUnitId'] = bu_id
 
-            camp_resp = sf_api('POST', '/services/data/v66.0/sobjects/Campaign', token, instance, body=camp_body)
-            if camp_resp.status_code in (200, 201):
-                campaign_id = camp_resp.json().get('id', '')
+            brief_fields = {
+                'Name': brief_name,
+                'Description': identity or f"{brand_name} {series['name']} email campaign",
+                'KeyMessage': '\n'.join(subject_lines) if subject_lines else brand_name,
+                'TargetAudience': industry or 'General audience',
+                'PrimaryGoal': primary_goal,
+                'PrimaryCtas': '\n'.join(cta_texts) if cta_texts else '',
+                'PrimaryKpi': 'Open Rate, Click-Through Rate, Conversion Rate',
+            }
+            if brand_content_id:
+                brief_fields['BrandId'] = brand_content_id
 
-                campaign_result = {
-                    'id': campaign_id,
-                    'name': campaign_name,
-                    'status': 'Created'
+            # Composite: Campaign -> Brief -> link Campaign.BriefId -> BriefPlanSteps
+            subrequests = [
+                {'method': 'POST', 'url': '/services/data/v67.0/sobjects/Campaign',
+                 'referenceId': 'newCampaign', 'body': camp_body},
+                {'method': 'POST', 'url': '/services/data/v67.0/sobjects/Brief',
+                 'referenceId': 'newBrief', 'body': brief_fields},
+                {'method': 'PATCH', 'url': '/services/data/v67.0/sobjects/Campaign/@{newCampaign.id}',
+                 'referenceId': 'linkBrief', 'body': {'BriefId': '@{newBrief.id}'}}
+            ]
+            for step_idx, em in enumerate(emails):
+                step_body = {
+                    'BriefId': '@{newBrief.id}',
+                    'StepNumber': step_idx + 1, 'StepType': 'Send',
+                    'Channel': 'Email',
+                    'Content': em.get('copy', {}).get('subject', f'Email {step_idx + 1}'),
                 }
+                if step_idx > 0:
+                    step_body['WaitNumber'] = series.get('wait_days', 1)
+                    step_body['WaitUnit'] = 'Days'
+                subrequests.append({
+                    'method': 'POST', 'url': '/services/data/v67.0/sobjects/BriefPlanStep',
+                    'referenceId': f'step{step_idx}', 'body': step_body
+                })
 
-                user_id = ''
-                try:
-                    user_resp = sf_api('GET', '/services/data/v66.0/chatter/users/me', token, instance)
-                    if user_resp.ok:
-                        user_id = user_resp.json().get('id', '')
-                except Exception:
-                    pass
+            comp_resp = sf_api('POST', '/services/data/v67.0/composite',
+                               token, instance, body={'compositeRequest': subrequests})
 
-                # Create standard Campaign Brief (Brief object)
-                tone = config.get('tone', {})
-                tone_label = tone.get('label', 'Professional') if isinstance(tone, dict) else str(tone)
-                identity = config.get('identity', '')
-                industry = config.get('industry', '')
-                brand_content_id = data.get('brandContentId', '')
+            if comp_resp.status_code in (200, 201):
+                comp_results = comp_resp.json().get('compositeResponse', [])
+                camp_sub = next((r for r in comp_results if r.get('referenceId') == 'newCampaign'), None)
+                brief_sub = next((r for r in comp_results if r.get('referenceId') == 'newBrief'), None)
 
-                subject_lines = []
-                cta_texts = []
-                for em in emails:
-                    c = em.get('copy', {})
-                    if c.get('subject'):
-                        subject_lines.append(c['subject'])
-                    if c.get('cta_text'):
-                        cta_texts.append(c['cta_text'])
-
-                if series_key == 'nurture':
-                    primary_goal = 'Drive engagement, increase conversions, and build brand awareness'
-                else:
-                    primary_goal = 'Onboard new customers, drive product adoption, and build relationship'
-
-                brief_fields = {
-                    'Name': f"{brand_name} {series['name']} Brief",
-                    'Description': identity or f"{brand_name} {series['name']} email campaign",
-                    'KeyMessage': '\n'.join(subject_lines) if subject_lines else brand_name,
-                    'TargetAudience': industry or 'General audience',
-                    'PrimaryGoal': primary_goal,
-                    'PrimaryCtas': '\n'.join(cta_texts) if cta_texts else '',
-                    'PrimaryKpi': 'Open Rate, Click-Through Rate, Conversion Rate',
-                }
-
-                if bu_id:
-                    brief_fields['BusinessUnitId'] = bu_id
-                if brand_content_id:
-                    brief_fields['BrandId'] = brand_content_id
-
-                try:
-                    brief_resp = sf_api('POST', '/services/data/v66.0/sobjects/Brief',
-                                        token, instance, body=brief_fields)
-                    if brief_resp.status_code in (200, 201):
-                        brief_id = brief_resp.json().get('id', '')
-                        campaign_result['briefId'] = brief_id
-                        campaign_result['briefName'] = brief_fields['Name']
-
-                        # Link Brief to Campaign via Campaign.BriefId
-                        try:
-                            sf_api('PATCH', f'/services/data/v67.0/sobjects/Campaign/{campaign_id}',
-                                   token, instance, body={'BriefId': brief_id})
-                        except Exception:
-                            pass  # Non-critical — brief was still created
-
-                        # Create BriefPlanSteps for each email in the series
-                        for step_idx, em in enumerate(emails):
-                            c = em.get('copy', {})
-                            step_content = c.get('subject', f'Email {step_idx + 1}')
-                            wait_days = series.get('wait_days', 1)
-
-                            step_body = {
-                                'BriefId': brief_id,
-                                'StepNumber': step_idx + 1,
-                                'StepType': 'Send',
-                                'Channel': 'Email',
-                                'Content': step_content,
-                            }
-                            if step_idx > 0:
-                                step_body['WaitNumber'] = wait_days
-                                step_body['WaitUnit'] = 'Days'
-
-                            try:
-                                sf_api('POST', '/services/data/v66.0/sobjects/BriefPlanStep',
-                                       token, instance, body=step_body)
-                            except Exception:
-                                pass  # Non-critical — brief itself was created
+                if camp_sub and camp_sub.get('httpStatusCode') in (200, 201):
+                    campaign_result = {
+                        'id': camp_sub['body'].get('id', ''),
+                        'name': campaign_name,
+                        'status': 'Created'
+                    }
+                    if brief_sub and brief_sub.get('httpStatusCode') in (200, 201):
+                        campaign_result['briefId'] = brief_sub['body'].get('id', '')
+                        campaign_result['briefName'] = brief_name
                     else:
-                        errors.append(f"Campaign Brief: {brief_resp.status_code} - {brief_resp.text[:200]}")
-                except Exception as be:
-                    errors.append(f"Campaign Brief: {str(be)[:150]}")
+                        errors.append(f"Brief: {brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'}")
+                else:
+                    camp_err = camp_sub.get('body', 'Unknown') if camp_sub else 'No response'
+                    errors.append(f"Campaign: {str(camp_err)[:200]}")
             else:
-                errors.append(f"Campaign creation: {camp_resp.status_code} - {camp_resp.text[:200]}")
+                errors.append(f"Campaign+Brief: {comp_resp.status_code} - {comp_resp.text[:200]}")
         except Exception as ce:
             errors.append(f"Campaign: {str(ce)[:150]}")
 
