@@ -2231,7 +2231,7 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
         </connector>
         <triggerType>Segment</triggerType>
     </start>
-    <status>Draft</status>{waits_xml}
+    <status>InvalidDraft</status>{waits_xml}
 </Flow>'''
 
     return {
@@ -2437,6 +2437,147 @@ def build_cms_email_content_json(email_html, subject, preheader, title='', brand
     }
 
 
+def _soap_deploy_flow(flow_xml, flow_api_name, token, instance, poll_timeout=45):
+    """Deploy a flow via SOAP Metadata API and poll checkDeployStatus until done.
+
+    Returns dict with:
+      success (bool), deployId (str), error (str if failed),
+      componentErrors (list of error strings for debugging)
+    """
+    # 1. Build ZIP
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        package_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types><members>{flow_api_name}</members><name>Flow</name></types>
+    <version>67.0</version>
+</Package>'''
+        zf.writestr('package.xml', package_xml)
+        zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
+    zip_b64 = base64.b64encode(zip_buffer.getvalue()).decode('ascii')
+
+    soap_url = instance.rstrip('/') + '/services/Soap/m/67.0'
+
+    # 2. Submit deploy
+    deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:met="http://soap.sforce.com/2006/04/metadata">
+  <soap:Header>
+    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
+  </soap:Header>
+  <soap:Body>
+    <met:deploy>
+      <met:ZipFile>{zip_b64}</met:ZipFile>
+      <met:DeployOptions>
+        <met:singlePackage>true</met:singlePackage>
+        <met:rollbackOnError>true</met:rollbackOnError>
+      </met:DeployOptions>
+    </met:deploy>
+  </soap:Body>
+</soap:Envelope>'''
+
+    try:
+        deploy_resp = requests.post(
+            soap_url,
+            headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
+            data=deploy_soap.encode('utf-8'),
+            timeout=15  # 15s to submit — generous enough for SOAP
+        )
+    except requests.exceptions.Timeout:
+        return {'success': False, 'error': 'SOAP deploy submit timed out (15s)', 'componentErrors': []}
+    except Exception as e:
+        return {'success': False, 'error': f'SOAP deploy submit error: {str(e)[:200]}', 'componentErrors': []}
+
+    # 3. Extract deploy ID from SOAP response
+    deploy_id = None
+    try:
+        root = ET.fromstring(deploy_resp.text)
+        for el in root.iter():
+            if el.tag.endswith('}id') or el.tag == 'id':
+                deploy_id = el.text
+                break
+    except ET.ParseError:
+        pass
+
+    if not deploy_id:
+        # Try to extract any error message from the SOAP fault
+        error_msg = 'No deploy ID returned'
+        try:
+            root = ET.fromstring(deploy_resp.text)
+            for el in root.iter():
+                if 'faultstring' in el.tag.lower() or el.tag.endswith('}faultstring'):
+                    error_msg = el.text or error_msg
+                    break
+        except Exception:
+            error_msg += f' (HTTP {deploy_resp.status_code}: {deploy_resp.text[:200]})'
+        return {'success': False, 'error': error_msg, 'componentErrors': []}
+
+    # 4. Poll checkDeployStatus
+    check_soap_template = '''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:met="http://soap.sforce.com/2006/04/metadata">
+  <soap:Header>
+    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
+  </soap:Header>
+  <soap:Body>
+    <met:checkDeployStatus>
+      <met:asyncProcessId>{deploy_id}</met:asyncProcessId>
+      <met:includeDetails>true</met:includeDetails>
+    </met:checkDeployStatus>
+  </soap:Body>
+</soap:Envelope>'''
+
+    check_soap = check_soap_template.format(token=token, deploy_id=deploy_id)
+    start_time = time.time()
+    poll_interval = 3  # seconds between polls
+
+    while (time.time() - start_time) < poll_timeout:
+        time.sleep(poll_interval)
+        try:
+            cr = requests.post(
+                soap_url,
+                headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'checkDeployStatus'},
+                data=check_soap.encode('utf-8'),
+                timeout=10
+            )
+            croot = ET.fromstring(cr.text)
+
+            done = False
+            success = False
+            for el in croot.iter():
+                if el.tag.endswith('}done'):
+                    done = el.text == 'true'
+                if el.tag.endswith('}success'):
+                    success = el.text == 'true'
+
+            if done:
+                if success:
+                    return {'success': True, 'deployId': deploy_id, 'componentErrors': []}
+                else:
+                    # Extract error details
+                    component_errors = []
+                    for el in croot.iter():
+                        if el.tag.endswith('}problem') or el.tag.endswith('}message'):
+                            if el.text:
+                                component_errors.append(el.text)
+                    error_summary = component_errors[0] if component_errors else 'Deploy failed (unknown reason)'
+                    return {
+                        'success': False,
+                        'deployId': deploy_id,
+                        'error': error_summary,
+                        'componentErrors': component_errors
+                    }
+        except Exception:
+            continue  # Network blip — retry
+
+    return {
+        'success': False,
+        'deployId': deploy_id,
+        'error': f'Deploy status check timed out after {poll_timeout}s (deploy may still be processing)',
+        'componentErrors': []
+    }
+
+
 def _deploy_email_series_internal(token, instance, data):
     """Core email series deploy logic: uploads emails to CMS, publishes, creates flow + campaign.
     Returns dict with emails, flow, campaign, errors, success, totalCreated."""
@@ -2539,7 +2680,7 @@ def _deploy_email_series_internal(token, instance, data):
                 errors.append(f"Email publish: {str(pe)[:100]}")
 
     # Step 3: Create the flow if requested and we have emails
-    # Flow deploys via SOAP Metadata API in a BACKGROUND THREAD to avoid blocking
+    # Uses _soap_deploy_flow which submits + polls checkDeployStatus until done
     flow_result = None
     if create_flow and len(created_emails) > 0:
         email_content_keys = [e['contentKey'] for e in created_emails]
@@ -2558,77 +2699,29 @@ def _deploy_email_series_internal(token, instance, data):
             flow_api_name = flow_data['flowApiName']
             wait_days = EMAIL_SERIES[series_key]['wait_days']
 
-            # Build the SOAP payload now (fast, no network)
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                package_xml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Package xmlns="http://soap.sforce.com/2006/04/metadata">
-    <types>
-        <members>''' + flow_api_name + '''</members>
-        <name>Flow</name>
-    </types>
-    <version>67.0</version>
-</Package>'''
-                zf.writestr('package.xml', package_xml)
-                zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
-            zip_buffer.seek(0)
-            zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+            deploy_result = _soap_deploy_flow(flow_xml, flow_api_name, token, instance, poll_timeout=45)
 
-            deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:met="http://soap.sforce.com/2006/04/metadata">
-  <soap:Header>
-    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
-  </soap:Header>
-  <soap:Body>
-    <met:deploy>
-      <met:ZipFile>{zip_b64}</met:ZipFile>
-      <met:DeployOptions>
-        <met:singlePackage>true</met:singlePackage>
-        <met:rollbackOnError>true</met:rollbackOnError>
-      </met:DeployOptions>
-    </met:deploy>
-  </soap:Body>
-</soap:Envelope>'''
-
-            # Submit SOAP deploy — SF processes async, we just need the deploy ID back
-            try:
-                deploy_resp = requests.post(
-                    f"{instance}/services/Soap/m/67.0",
-                    headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
-                    data=deploy_soap.encode('utf-8'),
-                    timeout=5
-                )
-                if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
-                    flow_result = {
-                        'name': flow_data['flowLabel'],
-                        'apiName': flow_api_name,
-                        'status': 'Deploying',
-                        'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
-                    }
-                else:
-                    errors.append(f"Flow submit: {deploy_resp.status_code}")
-                    flow_result = {
-                        'name': flow_data['flowLabel'],
-                        'apiName': flow_api_name,
-                        'status': 'Failed',
-                        'error': f"SOAP returned {deploy_resp.status_code}"
-                    }
-            except requests.exceptions.Timeout:
-                # Timeout is OK — SF accepted the deploy, just took long to respond
+            if deploy_result['success']:
                 flow_result = {
                     'name': flow_data['flowLabel'],
                     'apiName': flow_api_name,
-                    'status': 'Deploying',
+                    'status': 'Deployed',
+                    'deployId': deploy_result.get('deployId', ''),
                     'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
                 }
-            except Exception as fe:
-                errors.append(f"Flow deploy: {str(fe)[:100]}")
+            else:
+                error_detail = deploy_result.get('error', 'Unknown error')
+                component_errors = deploy_result.get('componentErrors', [])
+                errors.append(f"Flow deploy failed: {error_detail}")
+                if component_errors:
+                    for ce in component_errors[:3]:  # include up to 3 component errors
+                        errors.append(f"  → {ce}")
                 flow_result = {
                     'name': flow_data['flowLabel'],
                     'apiName': flow_api_name,
                     'status': 'Failed',
-                    'error': str(fe)[:100]
+                    'error': error_detail,
+                    'componentErrors': component_errors[:5]
                 }
 
     # Step 4: Create Campaign + Campaign Brief if requested
@@ -2639,16 +2732,40 @@ def _deploy_email_series_internal(token, instance, data):
         today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
-            # Look up BusinessUnit (1 fast query)
+            # Look up BusinessUnit in the 'default' Data Space (must match flow's <dataSpace>default</dataSpace>)
             bu_id = ''
             try:
-                bu_resp = sf_api('GET',
-                    '/services/data/v67.0/query/?q=' + quote("SELECT Id FROM BusinessUnit LIMIT 1"),
+                # First find the DataSpace record for 'default'
+                ds_resp = sf_api('GET',
+                    '/services/data/v67.0/query/?q=' + quote(
+                        "SELECT Id FROM DataSpace WHERE DataSpaceApiName = 'default' LIMIT 1"),
                     token, instance, timeout=5)
-                if bu_resp.ok:
-                    bu_recs = bu_resp.json().get('records', [])
-                    if bu_recs:
-                        bu_id = bu_recs[0]['Id']
+                ds_id = ''
+                if ds_resp.ok:
+                    ds_recs = ds_resp.json().get('records', [])
+                    if ds_recs:
+                        ds_id = ds_recs[0]['Id']
+
+                if ds_id:
+                    # Find the BusinessUnit in the default Data Space
+                    bu_resp = sf_api('GET',
+                        '/services/data/v67.0/query/?q=' + quote(
+                            f"SELECT Id FROM BusinessUnit WHERE DataSpaceId = '{ds_id}' LIMIT 1"),
+                        token, instance, timeout=5)
+                    if bu_resp.ok:
+                        bu_recs = bu_resp.json().get('records', [])
+                        if bu_recs:
+                            bu_id = bu_recs[0]['Id']
+                else:
+                    # Fallback: no DataSpace sObject or no 'default' found — try DeveloperName match
+                    bu_resp = sf_api('GET',
+                        '/services/data/v67.0/query/?q=' + quote(
+                            "SELECT Id FROM BusinessUnit WHERE DeveloperName = 'defaultBusinessUnit' LIMIT 1"),
+                        token, instance, timeout=5)
+                    if bu_resp.ok:
+                        bu_recs = bu_resp.json().get('records', [])
+                        if bu_recs:
+                            bu_id = bu_recs[0]['Id']
             except Exception:
                 pass
 
@@ -2764,7 +2881,12 @@ def _deploy_email_series_internal(token, instance, data):
                             linked = True
                             break
                         else:
-                            errors.append(f"Flow-campaign link: {link_resp.status_code}")
+                            try:
+                                link_err_body = link_resp.json()
+                                link_err_msg = str(link_err_body)[:300]
+                            except Exception:
+                                link_err_msg = link_resp.text[:300]
+                            errors.append(f"Flow-campaign link: {link_resp.status_code} - {link_err_msg}")
                             break
             except Exception:
                 pass
@@ -2837,68 +2959,27 @@ def deploy_flow():
     flow_api_name = flow_data['flowApiName']
     wait_days = EMAIL_SERIES[series_key]['wait_days']
 
-    # Build ZIP for SOAP Metadata API deploy
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        package_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Package xmlns="http://soap.sforce.com/2006/04/metadata">
-    <types><members>{flow_api_name}</members><name>Flow</name></types>
-    <version>67.0</version>
-</Package>'''
-        zf.writestr('package.xml', package_xml)
-        zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
-    zip_buffer.seek(0)
-    zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+    # Deploy via shared helper (submits + polls checkDeployStatus)
+    deploy_result = _soap_deploy_flow(flow_data['xml'], flow_api_name, token, instance, poll_timeout=45)
 
-    deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:met="http://soap.sforce.com/2006/04/metadata">
-  <soap:Header>
-    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
-  </soap:Header>
-  <soap:Body>
-    <met:deploy>
-      <met:ZipFile>{zip_b64}</met:ZipFile>
-      <met:DeployOptions>
-        <met:singlePackage>true</met:singlePackage>
-        <met:rollbackOnError>true</met:rollbackOnError>
-      </met:DeployOptions>
-    </met:deploy>
-  </soap:Body>
-</soap:Envelope>'''
-
-    try:
-        deploy_resp = requests.post(
-            f"{instance}/services/Soap/m/67.0",
-            headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
-            data=deploy_soap.encode('utf-8'),
-            timeout=25
-        )
-        if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
-            return jsonify({
-                'success': True,
-                'name': flow_data['flowLabel'],
-                'apiName': flow_api_name,
-                'status': 'Deploying',
-                'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'name': flow_data['flowLabel'],
-                'error': deploy_resp.text[:300]
-            }), 500
-    except requests.exceptions.Timeout:
-        # Timeout OK — SF accepted the deploy
+    if deploy_result['success']:
         return jsonify({
             'success': True,
             'name': flow_data['flowLabel'],
             'apiName': flow_api_name,
-            'status': 'Deploying',
-            'waitNote': f'Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+            'status': 'Deployed',
+            'deployId': deploy_result.get('deployId', ''),
+            'waitNote': f'Flow deployed with {wait_days}-day wait steps between emails. Open in Flow Builder to review and activate.'
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+    else:
+        return jsonify({
+            'success': False,
+            'name': flow_data['flowLabel'],
+            'apiName': flow_api_name,
+            'status': 'Failed',
+            'error': deploy_result.get('error', 'Unknown error'),
+            'componentErrors': deploy_result.get('componentErrors', [])
+        }), 500
 
 
 @app.route('/api/sf/deploy-all', methods=['POST'])
