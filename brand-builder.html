@@ -297,9 +297,7 @@
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         Deploy to Salesforce
       </button>
-      <button onclick="exportJSON()" class="px-6 py-3 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
-        Export Config as JSON
-      </button>
+      <!-- Export only available after brand is deployed (on success screen) -->
     </div>
   </section>
 
@@ -1205,10 +1203,10 @@ function gatherFinalConfig() {
 function exportJSON() {
   const config = gatherFinalConfig();
 
-  // Include full analysis result + email series so user can resume later
+  // Include full analysis result + email series + deploy results so user can resume later
   const exportData = {
     ...config,
-    _version: 2,
+    _version: 3,
     _exportedAt: new Date().toISOString(),
     _analysisResult: {
       brandName: analysisResult.brandName,
@@ -1234,6 +1232,12 @@ function exportJSON() {
         nurture: { enabled: emailSeriesState.series.nurture.enabled, emails: emailSeriesState.series.nurture.emails },
         welcome: { enabled: emailSeriesState.series.welcome.enabled, emails: emailSeriesState.series.welcome.emails }
       }
+    },
+    _deployResults: {
+      brandId: deployResults?.brand?.brandId || '',
+      contentIds: deployResults?.brand?.contentIds || [],
+      totalCreated: deployResults?.brand?.totalCreated || 0,
+      success: deployResults?.brand?.success || false
     }
   };
 
@@ -1258,6 +1262,13 @@ function importJSON() {
       // Restore analysisResult from saved state
       if (data._analysisResult) {
         analysisResult = { ...data._analysisResult };
+        // Ensure all images have selected flag set
+        if (analysisResult.images) {
+          analysisResult.images = analysisResult.images.map(i => ({
+            ...i,
+            selected: i.selected !== false ? true : false
+          }));
+        }
       } else {
         // Legacy v1 export — reconstruct analysisResult from flat config
         analysisResult = {
@@ -1293,6 +1304,20 @@ function importJSON() {
         emailSeriesState.series.welcome = { enabled: true, emails: [] };
       }
 
+      // Restore deploy results (brand SF IDs) if available
+      if (data._deployResults && data._deployResults.brandId) {
+        deployResults = {
+          brand: {
+            brandId: data._deployResults.brandId,
+            contentIds: data._deployResults.contentIds || [],
+            totalCreated: data._deployResults.totalCreated || 0,
+            success: data._deployResults.success || true
+          },
+          emailSeries: {},
+          errors: []
+        };
+      }
+
       // Set the URL field for reference
       if (data.sourceUrl) {
         document.getElementById('websiteUrl').value = data.sourceUrl;
@@ -1301,9 +1326,11 @@ function importJSON() {
         document.getElementById('accountName').value = data.brandName || data._analysisResult?.brandName || '';
       }
 
-      // Show email builder button since brand is loaded
-      const emailBtn = document.getElementById('btnBuildEmailsPreview');
-      if (emailBtn) emailBtn.classList.remove('hidden');
+      // Show email builder button since brand is loaded (only if brand was previously deployed)
+      if (deployResults?.brand?.success) {
+        const emailBtn = document.getElementById('btnBuildEmailsPreview');
+        if (emailBtn) emailBtn.classList.remove('hidden');
+      }
 
       // Jump straight to preview
       renderPreview();
@@ -1841,7 +1868,8 @@ async function deployEmailSeries(seriesKey, phaseNum) {
         segmentId: emailConfig.segmentId,
         createFlow: emailConfig.createFlow,
         createCampaign: emailConfig.createCampaign,
-        headerColor: emailConfig.headerColor
+        headerColor: emailConfig.headerColor,
+        brandContentId: deployResults?.brand?.brandId || ''
       })
     });
 
