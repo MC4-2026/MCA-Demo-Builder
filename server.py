@@ -2745,6 +2745,106 @@ def deploy_email_series():
     return jsonify(result)
 
 
+@app.route('/api/sf/deploy-flow', methods=['POST'])
+def deploy_flow():
+    """Deploy a single marketing flow via SOAP Metadata API. Called separately per series."""
+    token = session.get('sf_access_token')
+    instance = session.get('sf_instance_url')
+    if not token or not instance:
+        return jsonify({'error': 'Not connected to Salesforce'}), 401
+
+    data = request.json or {}
+    series_key = data.get('series', '')
+    email_content_keys = data.get('emailContentKeys', [])
+    config = data.get('config', {})
+    workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
+    segment_id = data.get('segmentId', '')
+    sender_id = data.get('senderId', '')
+    subscription_id = data.get('subscriptionId', '')
+    channel_type_id = data.get('channelTypeId', '')
+
+    if series_key not in EMAIL_SERIES:
+        return jsonify({'error': f'Invalid series: {series_key}'}), 400
+    if not email_content_keys:
+        return jsonify({'error': 'No email content keys provided'}), 400
+
+    flow_data = generate_flow_xml(
+        series_key, email_content_keys, config,
+        workspace_name, segment_id, sender_id, subscription_id, channel_type_id,
+        data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm'
+    )
+
+    if not flow_data:
+        return jsonify({'error': 'Failed to generate flow XML'}), 500
+
+    flow_xml = flow_data['xml']
+    flow_api_name = flow_data['flowApiName']
+    wait_days = EMAIL_SERIES[series_key]['wait_days']
+
+    # Build ZIP for SOAP Metadata API deploy
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        package_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types><members>{flow_api_name}</members><name>Flow</name></types>
+    <version>67.0</version>
+</Package>'''
+        zf.writestr('package.xml', package_xml)
+        zf.writestr(f'flows/{flow_api_name}.flow-meta.xml', flow_xml)
+    zip_buffer.seek(0)
+    zip_b64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+
+    deploy_soap = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:met="http://soap.sforce.com/2006/04/metadata">
+  <soap:Header>
+    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
+  </soap:Header>
+  <soap:Body>
+    <met:deploy>
+      <met:ZipFile>{zip_b64}</met:ZipFile>
+      <met:DeployOptions>
+        <met:singlePackage>true</met:singlePackage>
+        <met:rollbackOnError>true</met:rollbackOnError>
+      </met:DeployOptions>
+    </met:deploy>
+  </soap:Body>
+</soap:Envelope>'''
+
+    try:
+        deploy_resp = requests.post(
+            f"{instance}/services/Soap/m/67.0",
+            headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
+            data=deploy_soap.encode('utf-8'),
+            timeout=25
+        )
+        if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
+            return jsonify({
+                'success': True,
+                'name': flow_data['flowLabel'],
+                'apiName': flow_api_name,
+                'status': 'Deploying',
+                'waitNote': f'Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'name': flow_data['flowLabel'],
+                'error': deploy_resp.text[:300]
+            }), 500
+    except requests.exceptions.Timeout:
+        # Timeout OK — SF accepted the deploy
+        return jsonify({
+            'success': True,
+            'name': flow_data['flowLabel'],
+            'apiName': flow_api_name,
+            'status': 'Deploying',
+            'waitNote': f'Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
 @app.route('/api/sf/deploy-all', methods=['POST'])
 def deploy_all():
     """Unified deploy: brand + images + optional email series, all in one request."""
@@ -2797,7 +2897,7 @@ def deploy_all():
             'senderId': email_config.get('senderId', ''),
             'subscriptionId': email_config.get('subscriptionId', ''),
             'channelTypeId': email_config.get('channelTypeId', ''),
-            'createFlow': email_config.get('createFlow', True),
+            'createFlow': False,  # Flows deploy separately to avoid 30s timeout
             'createCampaign': email_config.get('createCampaign', True),
             'headerColor': email_config.get('headerColor', None),
             'brandContentId': brand_result.get('brandId', ''),

@@ -1432,11 +1432,10 @@ async function executeDeploy() {
   if (emailSeries.length > 0) {
     steps.push({ pct: 55, msg: 'Creating email content...' });
     steps.push({ pct: 70, msg: 'Publishing emails...' });
-    steps.push({ pct: 80, msg: 'Deploying marketing flows...' });
-    steps.push({ pct: 90, msg: 'Creating campaigns...' });
+    steps.push({ pct: 80, msg: 'Creating campaigns & briefs...' });
   }
 
-  steps.push({ pct: 95, msg: 'Finishing up...' });
+  steps.push({ pct: 85, msg: 'Finishing up...' });
 
   let stepIdx = 0;
   const stepInterval = setInterval(() => {
@@ -1472,6 +1471,48 @@ async function executeDeploy() {
 
     if (!result.success) {
       throw new Error(result.errors?.[0] || 'Deployment failed');
+    }
+
+    // Phase 2: Deploy flows separately (each gets its own request to avoid 30s timeout)
+    if (emailSeries.length > 0 && (emailConfig.createFlow !== false)) {
+      statusText.textContent = 'Deploying marketing flows...';
+      progressBar.style.width = '85%';
+
+      const flowPromises = emailSeries.map(async (seriesKey) => {
+        const seriesResult = result.emailSeries?.[seriesKey];
+        if (!seriesResult?.emails?.length) return null;
+
+        const contentKeys = seriesResult.emails.map(e => e.contentKey);
+        try {
+          const flowResp = await fetch(`${API_BASE}/api/sf/deploy-flow`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              series: seriesKey,
+              emailContentKeys: contentKeys,
+              config,
+              workspaceName: wsName,
+              segmentId: emailConfig.segmentId || '',
+              senderId: emailConfig.senderId || '',
+              subscriptionId: emailConfig.subscriptionId || '',
+              channelTypeId: emailConfig.channelTypeId || ''
+            })
+          });
+          const flowData = await flowResp.json().catch(() => ({}));
+          // Attach flow result to series result
+          if (result.emailSeries[seriesKey]) {
+            result.emailSeries[seriesKey].flow = flowData.success
+              ? { name: flowData.name, apiName: flowData.apiName, status: 'Deploying', waitNote: flowData.waitNote }
+              : { name: flowData.name || seriesKey, status: 'Failed', error: flowData.error || 'Unknown error' };
+          }
+        } catch (flowErr) {
+          if (result.emailSeries[seriesKey]) {
+            result.emailSeries[seriesKey].flow = { name: seriesKey, status: 'Failed', error: flowErr.message };
+          }
+        }
+      });
+
+      await Promise.all(flowPromises);
     }
 
     progressBar.style.width = '100%';
