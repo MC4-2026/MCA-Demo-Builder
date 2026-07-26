@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.1.0'  # visible version: 2.1.0 = flow deploy polling + InvalidDraft + DataSpace fix
+_APP_VERSION = '2.2.0'  # 2.2.0 = fix workspace ApiName in flow contentId references
 
 import os
 import re
@@ -2607,6 +2607,21 @@ def _deploy_email_series_internal(token, instance, data):
         return {'success': False, 'errors': [f'Invalid series: {series_key}'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
     if not workspace_id:
         return {'success': False, 'errors': ['No workspace selected'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
+
+    # Resolve workspace ApiName (required for flow contentId references)
+    # The content ID format is: marketing--{ApiName}.sfdc_cms__email--{contentKey}
+    # The frontend sends the display name, but we need the ApiName field
+    try:
+        ws_resp = sf_api('GET',
+            '/services/data/v67.0/query/?q=' + quote(
+                f"SELECT ApiName FROM ManagedContentSpace WHERE Id = '{workspace_id}' LIMIT 1"),
+            token, instance, timeout=5)
+        if ws_resp.ok:
+            ws_recs = ws_resp.json().get('records', [])
+            if ws_recs and ws_recs[0].get('ApiName') and ws_recs[0]['ApiName'] != 'None':
+                workspace_name = ws_recs[0]['ApiName']
+    except Exception:
+        pass  # Fall back to the name from the frontend
     if not emails:
         return {'success': False, 'errors': ['No emails provided'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
 
@@ -2945,10 +2960,25 @@ def deploy_flow():
     email_content_keys = data.get('emailContentKeys', [])
     config = data.get('config', {})
     workspace_name = data.get('workspaceName', 'Default_Content_Workspace')
+    workspace_id = data.get('workspaceId', '')
     segment_id = data.get('segmentId', '')
     sender_id = data.get('senderId', '')
     subscription_id = data.get('subscriptionId', '')
     channel_type_id = data.get('channelTypeId', '')
+
+    # Resolve workspace ApiName from ID (same fix as _deploy_email_series_internal)
+    if workspace_id:
+        try:
+            ws_resp = sf_api('GET',
+                '/services/data/v67.0/query/?q=' + quote(
+                    f"SELECT ApiName FROM ManagedContentSpace WHERE Id = '{workspace_id}' LIMIT 1"),
+                token, instance, timeout=5)
+            if ws_resp.ok:
+                ws_recs = ws_resp.json().get('records', [])
+                if ws_recs and ws_recs[0].get('ApiName') and ws_recs[0]['ApiName'] != 'None':
+                    workspace_name = ws_recs[0]['ApiName']
+        except Exception:
+            pass
 
     if series_key not in EMAIL_SERIES:
         return jsonify({'error': f'Invalid series: {series_key}'}), 400
@@ -3009,6 +3039,19 @@ def deploy_all():
 
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
+
+    # Resolve workspace ApiName from ID
+    try:
+        ws_resp = sf_api('GET',
+            '/services/data/v67.0/query/?q=' + quote(
+                f"SELECT ApiName FROM ManagedContentSpace WHERE Id = '{workspace_id}' LIMIT 1"),
+            token, instance, timeout=5)
+        if ws_resp.ok:
+            ws_recs = ws_resp.json().get('records', [])
+            if ws_recs and ws_recs[0].get('ApiName') and ws_recs[0]['ApiName'] != 'None':
+                workspace_name = ws_recs[0]['ApiName']
+    except Exception:
+        pass
 
     results = {
         'brand': None,
