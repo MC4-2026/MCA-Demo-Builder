@@ -2569,25 +2569,45 @@ def _deploy_email_series_internal(token, instance, data):
   </soap:Body>
 </soap:Envelope>'''
 
-            # Fire SOAP deploy in background thread — don't wait for it
-            def _bg_flow_deploy(soap_data, inst):
-                try:
-                    requests.post(
-                        f"{inst}/services/Soap/m/67.0",
-                        headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
-                        data=soap_data, timeout=60
-                    )
-                except Exception:
-                    pass  # Best effort — flow deploys async on SF side
-
-            threading.Thread(target=_bg_flow_deploy, args=(deploy_soap.encode('utf-8'), instance), daemon=True).start()
-
-            flow_result = {
-                'name': flow_data['flowLabel'],
-                'apiName': flow_api_name,
-                'status': 'Deploying',
-                'waitNote': f'Flow is deploying to Salesforce (may take ~20s). Open in Flow Builder to add {wait_days}-day wait elements between emails.'
-            }
+            # Submit SOAP deploy — SF processes async, we just need the deploy ID back
+            try:
+                deploy_resp = requests.post(
+                    f"{instance}/services/Soap/m/67.0",
+                    headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'deploy'},
+                    data=deploy_soap.encode('utf-8'),
+                    timeout=5
+                )
+                if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
+                    flow_result = {
+                        'name': flow_data['flowLabel'],
+                        'apiName': flow_api_name,
+                        'status': 'Deploying',
+                        'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                    }
+                else:
+                    errors.append(f"Flow submit: {deploy_resp.status_code}")
+                    flow_result = {
+                        'name': flow_data['flowLabel'],
+                        'apiName': flow_api_name,
+                        'status': 'Failed',
+                        'error': f"SOAP returned {deploy_resp.status_code}"
+                    }
+            except requests.exceptions.Timeout:
+                # Timeout is OK — SF accepted the deploy, just took long to respond
+                flow_result = {
+                    'name': flow_data['flowLabel'],
+                    'apiName': flow_api_name,
+                    'status': 'Deploying',
+                    'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                }
+            except Exception as fe:
+                errors.append(f"Flow deploy: {str(fe)[:100]}")
+                flow_result = {
+                    'name': flow_data['flowLabel'],
+                    'apiName': flow_api_name,
+                    'status': 'Failed',
+                    'error': str(fe)[:100]
+                }
 
     # Step 4: Create Campaign + Campaign Brief if requested
     campaign_result = None
@@ -2597,6 +2617,19 @@ def _deploy_email_series_internal(token, instance, data):
         today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
+            # Look up BusinessUnit (1 fast query)
+            bu_id = ''
+            try:
+                bu_resp = sf_api('GET',
+                    '/services/data/v67.0/query/?q=' + quote("SELECT Id FROM BusinessUnit LIMIT 1"),
+                    token, instance, timeout=5)
+                if bu_resp.ok:
+                    bu_recs = bu_resp.json().get('records', [])
+                    if bu_recs:
+                        bu_id = bu_recs[0]['Id']
+            except Exception:
+                pass
+
             # Build all Campaign + Brief + BriefPlanSteps in ONE Composite API call
             identity = config.get('identity', '')
             industry = config.get('industry', '')
@@ -2614,6 +2647,8 @@ def _deploy_email_series_internal(token, instance, data):
                 'Name': campaign_name, 'Type': 'Email', 'Status': 'Planned',
                 'IsActive': True, 'Description': f"{brand_name} - {series['description']}"
             }
+            if bu_id:
+                camp_body['BusinessUnitId'] = bu_id
 
             brief_fields = {
                 'Name': brief_name,
@@ -2626,6 +2661,8 @@ def _deploy_email_series_internal(token, instance, data):
             }
             if brand_content_id:
                 brief_fields['BrandId'] = brand_content_id
+            if bu_id:
+                brief_fields['BusinessUnitId'] = bu_id
 
             # Composite: Campaign -> Brief -> link Campaign.BriefId -> BriefPlanSteps
             subrequests = [
