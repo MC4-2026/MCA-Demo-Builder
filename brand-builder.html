@@ -581,7 +581,24 @@
         </div>
       </div>
 
-      <!-- All Done button (appears after all phases complete) -->
+      <!-- Post-Brand: Next Steps (appears after brand deploy, if no email phases were pre-configured) -->
+      <div id="postBrandOptions" class="hidden mt-4 pt-4 border-t border-gray-200">
+        <p class="text-sm text-secondary font-semibold mb-3">Brand deployed! What's next?</p>
+        <div class="flex flex-wrap gap-3">
+          <button onclick="_emailCameFrom='step-deploy';showStep('step-emails');initEmailSeriesUI()"
+            class="px-5 py-2 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            Build &amp; Deploy Email Series
+          </button>
+          <button onclick="showFinalSuccess()"
+            class="px-5 py-2 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer text-sm flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            I'm Done — View Summary
+          </button>
+        </div>
+      </div>
+
+      <!-- All Done button (appears after all email phases complete) -->
       <div id="allPhasesComplete" class="hidden mt-4 pt-4 border-t border-gray-200">
         <button onclick="showFinalSuccess()"
           class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
@@ -633,6 +650,11 @@
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
           Open in Salesforce CMS
         </a>
+        <button id="successBuildEmails" onclick="_emailCameFrom='step-deploy';showStep('step-emails');initEmailSeriesUI()"
+          class="px-5 py-2.5 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition cursor-pointer flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          Build &amp; Deploy Email Series
+        </button>
         <button onclick="exportJSON()" class="px-5 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           Save Brand as JSON
@@ -1297,6 +1319,9 @@ function startUnifiedDeploy() {
   const config = gatherFinalConfig();
   localStorage.setItem('brandConfig', JSON.stringify(config));
 
+  // Check if brand was already deployed (coming back from email builder)
+  const brandAlreadyDeployed = deployResults && deployResults.brand && deployResults.brand.success;
+
   // Determine which email series have generated copy
   const hasNurtureCopy = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
   const hasWelcomeCopy = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
@@ -1306,11 +1331,14 @@ function startUnifiedDeploy() {
   document.getElementById('phase1ImageCount').textContent = config.images.length;
   document.getElementById('phase1ColorCount').textContent = config.colors.length;
 
-  // Reset all phase states
-  resetPhaseCard(1);
+  // Reset phases — but preserve Phase 1 if brand was already deployed
+  if (!brandAlreadyDeployed) {
+    resetPhaseCard(1);
+  }
   resetPhaseCard(2);
   resetPhaseCard(3);
   document.getElementById('allPhasesComplete').classList.add('hidden');
+  document.getElementById('postBrandOptions').classList.add('hidden');
 
   // Show/hide email config step and phase cards based on enabled series
   const emailConfigStep = document.getElementById('deploy-email-config');
@@ -1344,6 +1372,20 @@ function startUnifiedDeploy() {
   let phaseNum = 2;
   if (hasNurtureCopy) { document.getElementById('phase2Icon').textContent = phaseNum++; }
   if (hasWelcomeCopy) { document.getElementById('phase3Icon').textContent = phaseNum; }
+
+  // If brand already deployed and we now have email phases, unlock them
+  if (brandAlreadyDeployed && hasAnyEmails) {
+    // Unlock first available email phase
+    if (hasNurtureCopy) {
+      document.getElementById('phase2Card').classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById('phase2Badge').textContent = 'Ready';
+      document.getElementById('phase2Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    } else if (hasWelcomeCopy) {
+      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById('phase3Badge').textContent = 'Ready';
+      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    }
+  }
 
   showStep('step-deploy');
 
@@ -1634,8 +1676,8 @@ function unlockNextPhase(completedPhase) {
       document.getElementById('phase3Badge').textContent = 'Ready';
       document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
     } else {
-      // No email series — show final button
-      document.getElementById('allPhasesComplete').classList.remove('hidden');
+      // No email series configured yet — offer to build them or finish
+      document.getElementById('postBrandOptions').classList.remove('hidden');
     }
   } else if (completedPhase === 2) {
     if (phase3Visible) {
@@ -1918,6 +1960,13 @@ function showDeploySuccess(config, result) {
     warnEl.classList.remove('hidden');
   } else {
     document.getElementById('successWarnings').classList.add('hidden');
+  }
+
+  // Show/hide "Build & Deploy Email Series" button based on whether email series were already deployed
+  const hasDeployedEmails = Object.keys(emailSeriesResults).length > 0;
+  const emailBtn = document.getElementById('successBuildEmails');
+  if (emailBtn) {
+    emailBtn.classList.toggle('hidden', hasDeployedEmails);
   }
 
   showStep('step-confirm');
