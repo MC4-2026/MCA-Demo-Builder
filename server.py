@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.2.0'  # 2.2.0 = fix workspace ApiName in flow contentId references
+_APP_VERSION = '2.3.0'  # 2.3.0 = fix email publish (was using wrong contentId field, emails stayed Draft)
 
 import os
 import re
@@ -2676,7 +2676,7 @@ def _deploy_email_series_internal(token, instance, data):
 
             if resp.status_code in (200, 201):
                 result = resp.json()
-                content_id = result.get('contentId', result.get('id', ''))
+                content_id = result.get('managedContentId', result.get('contentId', result.get('id', '')))
                 content_key = result.get('contentKey', result.get('contentUrlName', email_name))
 
                 created_emails.append({
