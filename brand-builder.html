@@ -63,10 +63,18 @@
 
       <div id="inputError" class="hidden mt-4 text-error text-sm font-medium"></div>
 
-      <button id="btnAnalyze" onclick="startAnalysis()"
-        class="mt-6 px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer">
-        Analyze Website
-      </button>
+      <div class="flex items-center gap-3 mt-6">
+        <button id="btnAnalyze" onclick="startAnalysis()"
+          class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer">
+          Analyze Website
+        </button>
+        <span class="text-muted text-sm">or</span>
+        <button onclick="importJSON()"
+          class="px-5 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Load Saved Brand
+        </button>
+      </div>
     </div>
   </section>
 
@@ -426,66 +434,161 @@
       </div>
     </div>
 
-    <!-- Sub-step D: Deploy Everything -->
+    <!-- Sub-step D: Deploy Phases (3 sequential pushes) -->
     <div id="deploy-action" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-50 pointer-events-none">
       <div class="flex items-center gap-3 mb-4">
         <div id="deployStepIcon" class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">3</div>
         <h3 class="text-lg font-semibold text-secondary">Deploy to Salesforce</h3>
       </div>
+      <p class="text-muted text-sm mb-4">Deploy in phases — each push takes just a few seconds.</p>
 
-      <!-- Pre-deploy summary -->
-      <div id="deploySummary" class="mb-4">
-        <p class="text-muted text-sm mb-3">Ready to deploy the following to your Salesforce CMS:</p>
-        <div id="deploySummaryGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-          <div class="bg-surface rounded-lg p-3">
-            <div class="text-xl font-bold text-secondary">1</div>
-            <div class="text-xs text-muted">Brand</div>
+      <!-- Phase 1: Brand & Images -->
+      <div id="phase1Card" class="border border-gray-200 rounded-lg p-4 mb-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <div id="phase1Icon" class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">1</div>
+            <h4 class="font-semibold text-secondary text-sm">Brand & Images</h4>
           </div>
-          <div class="bg-surface rounded-lg p-3">
-            <div id="deployImageCount" class="text-xl font-bold text-secondary">0</div>
-            <div class="text-xs text-muted">Images</div>
+          <div id="phase1Badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-muted">Ready</div>
+        </div>
+        <div id="phase1Summary" class="flex gap-3 mb-3">
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Brand</span>
           </div>
-          <div id="deployEmailCountCard" class="hidden bg-surface rounded-lg p-3">
-            <div id="deployEmailCount" class="text-xl font-bold text-secondary">0</div>
-            <div class="text-xs text-muted">Emails</div>
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span id="phase1ImageCount" class="text-sm font-bold text-secondary">0</span>
+            <span class="text-xs text-muted ml-1">Images</span>
           </div>
-          <div id="deployFlowCountCard" class="hidden bg-surface rounded-lg p-3">
-            <div id="deployFlowCount" class="text-xl font-bold text-secondary">0</div>
-            <div class="text-xs text-muted">Flows</div>
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span id="phase1ColorCount" class="text-sm font-bold text-secondary">0</span>
+            <span class="text-xs text-muted ml-1">Colors</span>
           </div>
-          <div id="deployCampaignCountCard" class="hidden bg-surface rounded-lg p-3">
-            <div id="deployCampaignCount" class="text-xl font-bold text-secondary">0</div>
-            <div class="text-xs text-muted">Campaigns</div>
+        </div>
+        <button id="btnPhase1" onclick="deployPhase1()"
+          class="px-5 py-2 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          Deploy Brand
+        </button>
+        <div id="phase1Progress" class="hidden mt-3">
+          <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="phase1Status" class="text-xs text-secondary">Uploading images...</span>
           </div>
-          <div class="bg-surface rounded-lg p-3">
-            <div id="deployColorCount" class="text-xl font-bold text-secondary">0</div>
-            <div class="text-xs text-muted">Colors</div>
+          <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div id="phase1Bar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
           </div>
+        </div>
+        <div id="phase1Error" class="hidden mt-3 p-2 bg-error/5 border border-error/20 rounded text-error text-xs"></div>
+        <div id="phase1Done" class="hidden mt-3 flex items-center gap-2 text-success text-sm font-medium">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          Brand deployed successfully
         </div>
       </div>
 
-      <button id="btnDeploy" onclick="executeDeploy()"
-        class="px-8 py-3 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-        Deploy to Salesforce
-      </button>
-
-      <!-- Deploy progress -->
-      <div id="deployProgress" class="hidden mt-4">
-        <div class="flex items-center gap-3 mb-2">
-          <svg class="w-5 h-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
-          <span id="deployStatusText" class="text-sm text-secondary font-medium">Deploying...</span>
+      <!-- Phase 2: Nurture Series (shown only if nurture enabled) -->
+      <div id="phase2Card" class="hidden border border-gray-200 rounded-lg p-4 mb-3 opacity-50 pointer-events-none">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <div id="phase2Icon" class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">2</div>
+            <h4 class="font-semibold text-secondary text-sm">Nurture Series</h4>
+          </div>
+          <div id="phase2Badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-muted">Waiting</div>
         </div>
-        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-          <div id="deployProgressBar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+        <div id="phase2Summary" class="flex gap-3 mb-3">
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span id="phase2EmailCount" class="text-sm font-bold text-secondary">0</span>
+            <span class="text-xs text-muted ml-1">Emails</span>
+          </div>
+          <div id="phase2FlowBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Flow</span>
+          </div>
+          <div id="phase2CampaignBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Campaign</span>
+          </div>
+        </div>
+        <button id="btnPhase2" onclick="deployPhase2()"
+          class="px-5 py-2 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          Deploy Nurture
+        </button>
+        <div id="phase2Progress" class="hidden mt-3">
+          <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="phase2Status" class="text-xs text-secondary">Creating emails...</span>
+          </div>
+          <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div id="phase2Bar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+        <div id="phase2Error" class="hidden mt-3 p-2 bg-error/5 border border-error/20 rounded text-error text-xs"></div>
+        <div id="phase2Done" class="hidden mt-3 text-sm">
+          <div id="phase2Results" class="space-y-1"></div>
         </div>
       </div>
 
-      <!-- Deploy error -->
-      <div id="deployError" class="hidden mt-4 p-3 bg-error/5 border border-error/20 rounded-lg text-error text-sm"></div>
+      <!-- Phase 3: Welcome Series (shown only if welcome enabled) -->
+      <div id="phase3Card" class="hidden border border-gray-200 rounded-lg p-4 mb-3 opacity-50 pointer-events-none">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <div id="phase3Icon" class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">3</div>
+            <h4 class="font-semibold text-secondary text-sm">Welcome Series</h4>
+          </div>
+          <div id="phase3Badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-muted">Waiting</div>
+        </div>
+        <div id="phase3Summary" class="flex gap-3 mb-3">
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span id="phase3EmailCount" class="text-sm font-bold text-secondary">0</span>
+            <span class="text-xs text-muted ml-1">Emails</span>
+          </div>
+          <div id="phase3FlowBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Flow</span>
+          </div>
+          <div id="phase3CampaignBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Campaign</span>
+          </div>
+        </div>
+        <button id="btnPhase3" onclick="deployPhase3()"
+          class="px-5 py-2 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          Deploy Welcome
+        </button>
+        <div id="phase3Progress" class="hidden mt-3">
+          <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="phase3Status" class="text-xs text-secondary">Creating emails...</span>
+          </div>
+          <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div id="phase3Bar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+        <div id="phase3Error" class="hidden mt-3 p-2 bg-error/5 border border-error/20 rounded text-error text-xs"></div>
+        <div id="phase3Done" class="hidden mt-3 text-sm">
+          <div id="phase3Results" class="space-y-1"></div>
+        </div>
+      </div>
+
+      <!-- All Done button (appears after all phases complete) -->
+      <div id="allPhasesComplete" class="hidden mt-4 pt-4 border-t border-gray-200">
+        <button onclick="showFinalSuccess()"
+          class="px-6 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          View Summary
+        </button>
+      </div>
     </div>
   </section>
 
@@ -530,6 +633,10 @@
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
           Open in Salesforce CMS
         </a>
+        <button onclick="exportJSON()" class="px-5 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Save Brand as JSON
+        </button>
         <button onclick="goBack()" class="px-6 py-2.5 border border-gray-300 text-secondary font-medium rounded-lg hover:bg-gray-50 transition cursor-pointer">
           Analyze Another Website
         </button>
@@ -1068,11 +1175,111 @@ function gatherFinalConfig() {
 
 function exportJSON() {
   const config = gatherFinalConfig();
-  const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+
+  // Include full analysis result + email series so user can resume later
+  const exportData = {
+    ...config,
+    _version: 2,
+    _exportedAt: new Date().toISOString(),
+    _analysisResult: {
+      brandName: analysisResult.brandName,
+      description: analysisResult.description,
+      identity: analysisResult.identity,
+      toneKey: analysisResult.toneKey,
+      toneLabel: analysisResult.toneLabel,
+      toneIndustry: analysisResult.toneIndustry,
+      toneDescription: analysisResult.toneDescription,
+      customerTerm: analysisResult.customerTerm,
+      colors: analysisResult.colors,
+      headingFont: analysisResult.headingFont,
+      bodyFont: analysisResult.bodyFont,
+      buttonColor: analysisResult.buttonColor,
+      buttonRadius: analysisResult.buttonRadius,
+      images: analysisResult.images,
+      sourceUrl: analysisResult.sourceUrl
+    },
+    _emailSeries: {
+      selectedLogo: emailSeriesState.selectedLogo,
+      headerColor: emailSeriesState.headerColor,
+      series: {
+        nurture: { enabled: emailSeriesState.series.nurture.enabled, emails: emailSeriesState.series.nurture.emails },
+        welcome: { enabled: emailSeriesState.series.welcome.enabled, emails: emailSeriesState.series.welcome.emails }
+      }
+    }
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${config.brandName.replace(/\s+/g, '_')}_brand_config.json`;
   a.click();
+}
+
+function importJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Restore analysisResult from saved state
+      if (data._analysisResult) {
+        analysisResult = { ...data._analysisResult };
+      } else {
+        // Legacy v1 export — reconstruct analysisResult from flat config
+        analysisResult = {
+          brandName: data.brandName || '',
+          description: data.description || '',
+          identity: data.identity || '',
+          toneKey: data.tone?.key || 'banking_retail',
+          toneLabel: data.tone?.label || '',
+          toneIndustry: '',
+          toneDescription: data.tone?.description || '',
+          customerTerm: data.tone?.customerTerm || 'customers',
+          colors: data.colors || [],
+          headingFont: data.typography?.headingFont || 'Arial',
+          bodyFont: data.typography?.bodyFont || 'Arial',
+          buttonColor: data.buttonStyle?.color || '#0176d3',
+          buttonRadius: data.buttonStyle?.borderRadius || 4,
+          images: (data.images || []).map(i => ({ ...i, selected: true })),
+          sourceUrl: data.sourceUrl || ''
+        };
+      }
+
+      // Restore email series state if available
+      if (data._emailSeries) {
+        emailSeriesState.selectedLogo = data._emailSeries.selectedLogo || null;
+        emailSeriesState.headerColor = data._emailSeries.headerColor || null;
+        emailSeriesState.series.nurture = data._emailSeries.series?.nurture || { enabled: true, emails: [] };
+        emailSeriesState.series.welcome = data._emailSeries.series?.welcome || { enabled: true, emails: [] };
+      } else {
+        // Reset email state for legacy imports
+        emailSeriesState.selectedLogo = null;
+        emailSeriesState.headerColor = null;
+        emailSeriesState.series.nurture = { enabled: true, emails: [] };
+        emailSeriesState.series.welcome = { enabled: true, emails: [] };
+      }
+
+      // Set the URL field for reference
+      if (data.sourceUrl) {
+        document.getElementById('websiteUrl').value = data.sourceUrl;
+      }
+      if (data.brandName || data._analysisResult?.brandName) {
+        document.getElementById('accountName').value = data.brandName || data._analysisResult?.brandName || '';
+      }
+
+      // Jump straight to preview
+      renderPreview();
+
+    } catch (err) {
+      alert('Could not load brand file: ' + err.message);
+    }
+  };
+  input.click();
 }
 
 // ============================================================
@@ -1095,48 +1302,48 @@ function startUnifiedDeploy() {
   const hasWelcomeCopy = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
   const hasAnyEmails = hasNurtureCopy || hasWelcomeCopy;
 
-  // Update deploy summary counts
-  document.getElementById('deployImageCount').textContent = config.images.length;
-  document.getElementById('deployColorCount').textContent = config.colors.length;
+  // Update Phase 1 summary counts
+  document.getElementById('phase1ImageCount').textContent = config.images.length;
+  document.getElementById('phase1ColorCount').textContent = config.colors.length;
 
-  // Show/hide email-related summary cards and email config step
-  const emailCountCard = document.getElementById('deployEmailCountCard');
-  const flowCountCard = document.getElementById('deployFlowCountCard');
-  const campaignCountCard = document.getElementById('deployCampaignCountCard');
+  // Reset all phase states
+  resetPhaseCard(1);
+  resetPhaseCard(2);
+  resetPhaseCard(3);
+  document.getElementById('allPhasesComplete').classList.add('hidden');
+
+  // Show/hide email config step and phase cards based on enabled series
   const emailConfigStep = document.getElementById('deploy-email-config');
 
   if (hasAnyEmails) {
-    let emailCount = 0;
-    let seriesCount = 0;
-    if (hasNurtureCopy) { emailCount += emailSeriesState.series.nurture.emails.length; seriesCount++; }
-    if (hasWelcomeCopy) { emailCount += emailSeriesState.series.welcome.emails.length; seriesCount++; }
-
-    document.getElementById('deployEmailCount').textContent = emailCount;
-    document.getElementById('deployFlowCount').textContent = seriesCount;
-    document.getElementById('deployCampaignCount').textContent = seriesCount;
-    emailCountCard.classList.remove('hidden');
-    flowCountCard.classList.remove('hidden');
-    campaignCountCard.classList.remove('hidden');
     emailConfigStep.classList.remove('hidden');
-
-    // Update step numbers for email config and deploy action
     document.getElementById('emailCfgIcon').textContent = '3';
     document.getElementById('deployStepIcon').textContent = '4';
   } else {
-    emailCountCard.classList.add('hidden');
-    flowCountCard.classList.add('hidden');
-    campaignCountCard.classList.add('hidden');
     emailConfigStep.classList.add('hidden');
-
     document.getElementById('deployStepIcon').textContent = '3';
   }
 
-  // Reset deploy action state
-  document.getElementById('btnDeploy').classList.remove('hidden');
-  document.getElementById('deployProgress').classList.add('hidden');
-  document.getElementById('deployProgressBar').style.width = '0%';
-  document.getElementById('deployStatusText').textContent = 'Deploying...';
-  document.getElementById('deployError').classList.add('hidden');
+  // Phase 2: Nurture
+  if (hasNurtureCopy) {
+    document.getElementById('phase2Card').classList.remove('hidden');
+    document.getElementById('phase2EmailCount').textContent = emailSeriesState.series.nurture.emails.length;
+  } else {
+    document.getElementById('phase2Card').classList.add('hidden');
+  }
+
+  // Phase 3: Welcome
+  if (hasWelcomeCopy) {
+    document.getElementById('phase3Card').classList.remove('hidden');
+    document.getElementById('phase3EmailCount').textContent = emailSeriesState.series.welcome.emails.length;
+  } else {
+    document.getElementById('phase3Card').classList.add('hidden');
+  }
+
+  // Renumber visible phase cards
+  let phaseNum = 2;
+  if (hasNurtureCopy) { document.getElementById('phase2Icon').textContent = phaseNum++; }
+  if (hasWelcomeCopy) { document.getElementById('phase3Icon').textContent = phaseNum; }
 
   showStep('step-deploy');
 
@@ -1368,42 +1575,39 @@ function _populateDropdown(id, items, valKey, labelKey, defaultText) {
   });
 }
 
-async function executeDeploy() {
-  const workspaceId = autoWorkspaceId;
-  if (!workspaceId) return;
+// ============================================================
+// PHASED DEPLOY — 3 separate pushes to avoid 30s timeout
+// ============================================================
 
+// Accumulated results across phases
+let deployResults = { brand: null, emailSeries: {}, errors: [] };
+
+function resetPhaseCard(n) {
+  const btn = document.getElementById(`btnPhase${n}`);
+  const prog = document.getElementById(`phase${n}Progress`);
+  const err = document.getElementById(`phase${n}Error`);
+  const done = document.getElementById(`phase${n}Done`);
+  const badge = document.getElementById(`phase${n}Badge`);
+  const bar = document.getElementById(`phase${n}Bar`);
+  if (btn) btn.classList.remove('hidden');
+  if (prog) prog.classList.add('hidden');
+  if (err) err.classList.add('hidden');
+  if (done) done.classList.add('hidden');
+  if (badge) { badge.textContent = n === 1 ? 'Ready' : 'Waiting'; badge.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-100 text-muted'; }
+  if (bar) bar.style.width = '0%';
+}
+
+function getDeployCommon() {
   const config = gatherFinalConfig();
-
-  // Determine selected email series
-  const emailSeries = [];
-  const emailData = {};
-  const hasNurture = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
-  const hasWelcome = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
-
-  if (hasNurture) {
-    emailSeries.push('nurture');
-    emailData.nurture = emailSeriesState.series.nurture.emails.map(e => ({
-      copy: e,
-      logoUrl: emailSeriesState.selectedLogo || '',
-      heroUrl: e.heroUrl || ''
-    }));
-  }
-  if (hasWelcome) {
-    emailSeries.push('welcome');
-    emailData.welcome = emailSeriesState.series.welcome.emails.map(e => ({
-      copy: e,
-      logoUrl: emailSeriesState.selectedLogo || '',
-      heroUrl: e.heroUrl || ''
-    }));
-  }
-
-  // Get workspace name for flow deployment
+  const workspaceId = autoWorkspaceId;
   const wsName = (document.getElementById('detectedWsName')?.textContent ||
     document.getElementById('workspaceSelect')?.selectedOptions?.[0]?.text || 'Default_Content_Workspace')
     .replace(/\s+/g, '_');
+  return { config, workspaceId, wsName };
+}
 
-  // Build email config from unified form fields
-  const emailConfig = emailSeries.length > 0 ? {
+function getEmailConfig() {
+  return {
     senderId: document.getElementById('unifiedSender')?.value || '',
     subscriptionId: document.getElementById('unifiedSub')?.value || '',
     channelTypeId: document.getElementById('unifiedChan')?.value || '',
@@ -1411,125 +1615,237 @@ async function executeDeploy() {
     createFlow: document.getElementById('unifiedCreateFlow')?.checked ?? true,
     createCampaign: document.getElementById('unifiedCreateCampaign')?.checked ?? true,
     headerColor: emailSeriesState.headerColor
-  } : {};
+  };
+}
 
-  // Show progress, hide button
-  document.getElementById('btnDeploy').classList.add('hidden');
-  const progress = document.getElementById('deployProgress');
-  const progressBar = document.getElementById('deployProgressBar');
-  const statusText = document.getElementById('deployStatusText');
-  const errEl = document.getElementById('deployError');
-  progress.classList.remove('hidden');
-  errEl.classList.add('hidden');
+function unlockNextPhase(completedPhase) {
+  // After phase 1, unlock phase 2 (nurture) or phase 3 (welcome) whichever is visible
+  // After phase 2, unlock phase 3 if visible
+  const phase2Visible = !document.getElementById('phase2Card').classList.contains('hidden');
+  const phase3Visible = !document.getElementById('phase3Card').classList.contains('hidden');
 
-  // Build progress steps dynamically
-  const steps = [
-    { pct: 10, msg: 'Uploading images to CMS...' },
-    { pct: 30, msg: 'Creating brand content...' },
-    { pct: 45, msg: 'Publishing brand...' }
-  ];
-
-  if (emailSeries.length > 0) {
-    steps.push({ pct: 55, msg: 'Creating email content...' });
-    steps.push({ pct: 70, msg: 'Publishing emails...' });
-    steps.push({ pct: 80, msg: 'Creating campaigns & briefs...' });
+  if (completedPhase === 1) {
+    if (phase2Visible) {
+      document.getElementById('phase2Card').classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById('phase2Badge').textContent = 'Ready';
+      document.getElementById('phase2Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    } else if (phase3Visible) {
+      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById('phase3Badge').textContent = 'Ready';
+      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    } else {
+      // No email series — show final button
+      document.getElementById('allPhasesComplete').classList.remove('hidden');
+    }
+  } else if (completedPhase === 2) {
+    if (phase3Visible) {
+      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById('phase3Badge').textContent = 'Ready';
+      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    } else {
+      document.getElementById('allPhasesComplete').classList.remove('hidden');
+    }
+  } else if (completedPhase === 3) {
+    document.getElementById('allPhasesComplete').classList.remove('hidden');
   }
+}
 
-  steps.push({ pct: 85, msg: 'Finishing up...' });
+function markPhaseComplete(n, resultHtml) {
+  document.getElementById(`btnPhase${n}`).classList.add('hidden');
+  document.getElementById(`phase${n}Progress`).classList.add('hidden');
+  document.getElementById(`phase${n}Badge`).textContent = 'Done';
+  document.getElementById(`phase${n}Badge`).className = 'text-xs px-2 py-0.5 rounded-full bg-success/10 text-success';
+  const doneEl = document.getElementById(`phase${n}Done`);
+  if (resultHtml) doneEl.innerHTML = resultHtml;
+  doneEl.classList.remove('hidden');
+  unlockNextPhase(n);
+}
 
+function markPhaseError(n, msg) {
+  document.getElementById(`phase${n}Progress`).classList.add('hidden');
+  document.getElementById(`btnPhase${n}`).classList.remove('hidden');
+  const errEl = document.getElementById(`phase${n}Error`);
+  errEl.textContent = msg;
+  errEl.classList.remove('hidden');
+  document.getElementById(`phase${n}Badge`).textContent = 'Error';
+  document.getElementById(`phase${n}Badge`).className = 'text-xs px-2 py-0.5 rounded-full bg-error/10 text-error';
+}
+
+// Phase 1: Deploy Brand & Images
+async function deployPhase1() {
+  const { config, workspaceId, wsName } = getDeployCommon();
+  if (!workspaceId) return;
+
+  deployResults = { brand: null, emailSeries: {}, errors: [] };
+
+  document.getElementById('btnPhase1').classList.add('hidden');
+  document.getElementById('phase1Error').classList.add('hidden');
+  document.getElementById('phase1Progress').classList.remove('hidden');
+  document.getElementById('phase1Badge').textContent = 'Deploying';
+  document.getElementById('phase1Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+
+  const steps = [
+    { pct: 20, msg: 'Uploading images to CMS...' },
+    { pct: 50, msg: 'Creating brand content...' },
+    { pct: 75, msg: 'Publishing brand...' },
+  ];
   let stepIdx = 0;
-  const stepInterval = setInterval(() => {
+  const interval = setInterval(() => {
     if (stepIdx < steps.length) {
-      progressBar.style.width = steps[stepIdx].pct + '%';
-      statusText.textContent = steps[stepIdx].msg;
+      document.getElementById('phase1Bar').style.width = steps[stepIdx].pct + '%';
+      document.getElementById('phase1Status').textContent = steps[stepIdx].msg;
       stepIdx++;
     }
-  }, 2000);
+  }, 2500);
 
   try {
-    const resp = await fetch(`${API_BASE}/api/sf/deploy-all`, {
+    const resp = await fetch(`${API_BASE}/api/sf/deploy`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        config,
-        workspaceId,
-        workspaceName: wsName,
-        emailSeries,
-        emailConfig,
-        emailData
-      })
+      body: JSON.stringify({ config, workspaceId, workspaceName: wsName })
     });
 
-    clearInterval(stepInterval);
+    clearInterval(interval);
 
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
-      throw new Error(errData.error || `Deployment failed (${resp.status})`);
+      throw new Error(errData.error || `Deploy failed (${resp.status})`);
     }
 
     const result = await resp.json();
+    if (!result.success) throw new Error(result.errors?.[0] || 'Brand deploy failed');
 
-    if (!result.success) {
-      throw new Error(result.errors?.[0] || 'Deployment failed');
-    }
+    document.getElementById('phase1Bar').style.width = '100%';
+    deployResults.brand = result;
 
-    // Phase 2: Deploy flows separately (each gets its own request to avoid 30s timeout)
-    if (emailSeries.length > 0 && (emailConfig.createFlow !== false)) {
-      statusText.textContent = 'Deploying marketing flows...';
-      progressBar.style.width = '85%';
-
-      const flowPromises = emailSeries.map(async (seriesKey) => {
-        const seriesResult = result.emailSeries?.[seriesKey];
-        if (!seriesResult?.emails?.length) return null;
-
-        const contentKeys = seriesResult.emails.map(e => e.contentKey);
-        try {
-          const flowResp = await fetch(`${API_BASE}/api/sf/deploy-flow`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              series: seriesKey,
-              emailContentKeys: contentKeys,
-              config,
-              workspaceName: wsName,
-              segmentId: emailConfig.segmentId || '',
-              senderId: emailConfig.senderId || '',
-              subscriptionId: emailConfig.subscriptionId || '',
-              channelTypeId: emailConfig.channelTypeId || ''
-            })
-          });
-          const flowData = await flowResp.json().catch(() => ({}));
-          // Attach flow result to series result
-          if (result.emailSeries[seriesKey]) {
-            result.emailSeries[seriesKey].flow = flowData.success
-              ? { name: flowData.name, apiName: flowData.apiName, status: 'Deploying', waitNote: flowData.waitNote }
-              : { name: flowData.name || seriesKey, status: 'Failed', error: flowData.error || 'Unknown error' };
-          }
-        } catch (flowErr) {
-          if (result.emailSeries[seriesKey]) {
-            result.emailSeries[seriesKey].flow = { name: seriesKey, status: 'Failed', error: flowErr.message };
-          }
-        }
-      });
-
-      await Promise.all(flowPromises);
-    }
-
-    progressBar.style.width = '100%';
-    statusText.textContent = 'Done!';
-
-    // Show success step
-    setTimeout(() => {
-      showDeploySuccess(config, result);
-    }, 600);
+    const total = result.totalCreated || 0;
+    markPhaseComplete(1, `<div class="flex items-center gap-2 text-success font-medium"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Brand deployed — ${total} item(s) created</div>`);
 
   } catch (e) {
-    clearInterval(stepInterval);
-    progress.classList.add('hidden');
-    document.getElementById('btnDeploy').classList.remove('hidden');
-    errEl.textContent = e.message;
-    errEl.classList.remove('hidden');
+    clearInterval(interval);
+    markPhaseError(1, e.message);
   }
+}
+
+// Phase 2: Deploy Nurture Series (emails + flow + campaign)
+async function deployPhase2() {
+  await deployEmailSeries('nurture', 2);
+}
+
+// Phase 3: Deploy Welcome Series (emails + flow + campaign)
+async function deployPhase3() {
+  await deployEmailSeries('welcome', 3);
+}
+
+async function deployEmailSeries(seriesKey, phaseNum) {
+  const { config, workspaceId, wsName } = getDeployCommon();
+  if (!workspaceId) return;
+
+  const emailConfig = getEmailConfig();
+  const seriesEmails = emailSeriesState.series[seriesKey]?.emails || [];
+  if (!seriesEmails.length) return;
+
+  const emails = seriesEmails.map(e => ({
+    copy: e,
+    logoUrl: emailSeriesState.selectedLogo || '',
+    heroUrl: e.heroUrl || ''
+  }));
+
+  document.getElementById(`btnPhase${phaseNum}`).classList.add('hidden');
+  document.getElementById(`phase${phaseNum}Error`).classList.add('hidden');
+  document.getElementById(`phase${phaseNum}Progress`).classList.remove('hidden');
+  document.getElementById(`phase${phaseNum}Badge`).textContent = 'Deploying';
+  document.getElementById(`phase${phaseNum}Badge`).className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+
+  const steps = [
+    { pct: 15, msg: 'Creating emails in CMS...' },
+    { pct: 40, msg: 'Publishing emails...' },
+    { pct: 60, msg: 'Deploying marketing flow...' },
+    { pct: 80, msg: 'Creating campaign & brief...' },
+  ];
+  let stepIdx = 0;
+  const interval = setInterval(() => {
+    if (stepIdx < steps.length) {
+      document.getElementById(`phase${phaseNum}Bar`).style.width = steps[stepIdx].pct + '%';
+      document.getElementById(`phase${phaseNum}Status`).textContent = steps[stepIdx].msg;
+      stepIdx++;
+    }
+  }, 3000);
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/sf/deploy-email-series`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        series: seriesKey,
+        emails,
+        config,
+        workspaceId,
+        workspaceName: wsName,
+        senderId: emailConfig.senderId,
+        subscriptionId: emailConfig.subscriptionId,
+        channelTypeId: emailConfig.channelTypeId,
+        segmentId: emailConfig.segmentId,
+        createFlow: emailConfig.createFlow,
+        createCampaign: emailConfig.createCampaign,
+        headerColor: emailConfig.headerColor
+      })
+    });
+
+    clearInterval(interval);
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `Deploy failed (${resp.status})`);
+    }
+
+    const result = await resp.json();
+    if (!result.success && result.errors?.length) throw new Error(result.errors[0]);
+
+    document.getElementById(`phase${phaseNum}Bar`).style.width = '100%';
+    deployResults.emailSeries[seriesKey] = result;
+
+    // Build result summary HTML
+    let html = '';
+    const emailCount = result.emails?.length || 0;
+    if (emailCount > 0) html += `<div class="flex items-center gap-1 text-success"><span>✅</span> ${emailCount} email(s) created</div>`;
+
+    if (result.flow) {
+      if (result.flow.status === 'Failed') {
+        html += `<div class="flex items-center gap-1 text-error"><span>❌</span> Flow failed: ${result.flow.error || 'Unknown'}</div>`;
+      } else {
+        html += `<div class="flex items-center gap-1 text-success"><span>⏳</span> Flow deploying: ${result.flow.name || ''}</div>`;
+        if (result.flow.waitNote) html += `<div class="text-amber-600 text-xs ml-5">⏱️ ${result.flow.waitNote}</div>`;
+      }
+    }
+
+    if (result.campaign) {
+      html += `<div class="flex items-center gap-1 text-success"><span>✅</span> Campaign: ${result.campaign.name || ''}</div>`;
+      if (result.campaign.briefName) html += `<div class="flex items-center gap-1 text-success"><span>✅</span> Brief: ${result.campaign.briefName}</div>`;
+    }
+
+    if (result.errors?.length) {
+      result.errors.forEach(err => { html += `<div class="flex items-center gap-1 text-amber-600"><span>⚠️</span> ${err}</div>`; });
+    }
+
+    markPhaseComplete(phaseNum, html || '<div class="text-success">✅ Deployed</div>');
+
+  } catch (e) {
+    clearInterval(interval);
+    markPhaseError(phaseNum, e.message);
+  }
+}
+
+function showFinalSuccess() {
+  const config = gatherFinalConfig();
+  // Merge deployResults into the shape showDeploySuccess expects
+  const mergedResult = {
+    brand: deployResults.brand,
+    emailSeries: deployResults.emailSeries,
+    errors: deployResults.errors,
+    totalCreated: (deployResults.brand?.totalCreated || 0)
+  };
+  showDeploySuccess(config, mergedResult);
 }
 
 function showDeploySuccess(config, result) {
