@@ -5,6 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
+_APP_VERSION = '2.1.0'  # visible version: 2.1.0 = flow deploy polling + InvalidDraft + DataSpace fix
 
 import os
 import re
@@ -888,6 +889,12 @@ def analyze():
     return jsonify({'jobId': job_id, 'status': 'pending'})
 
 
+@app.route('/api/version')
+def api_version():
+    """Return current app version for deploy verification."""
+    return jsonify({'version': _APP_VERSION, 'engine': _ENGINE_REV})
+
+
 @app.route('/api/status/<job_id>')
 def job_status(job_id):
     """Poll for job completion."""
@@ -1542,7 +1549,8 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
         'brandContentKey': brand_content_key,
         'contentIds': content_ids,
         'totalCreated': len(content_ids),
-        'errors': errors
+        'errors': errors,
+        'version': _APP_VERSION
     }
 
 
@@ -2899,7 +2907,8 @@ def _deploy_email_series_internal(token, instance, data):
         'flow': flow_result,
         'campaign': campaign_result,
         'errors': errors,
-        'totalCreated': len(created_emails)
+        'totalCreated': len(created_emails),
+        'version': _APP_VERSION
     }
 
 

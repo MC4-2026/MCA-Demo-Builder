@@ -1915,6 +1915,10 @@ async function deployEmailSeries(seriesKey, phaseNum) {
       result.errors.forEach(err => { html += `<div class="flex items-center gap-1 text-amber-600"><span>⚠️</span> ${err}</div>`; });
     }
 
+    if (result.version) {
+      html += `<div class="text-xs text-gray-400 mt-1">Server v${result.version}</div>`;
+    }
+
     markPhaseComplete(phaseNum, html || '<div class="text-success">✅ Deployed</div>');
 
   } catch (e) {
