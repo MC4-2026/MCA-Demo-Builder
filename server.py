@@ -2473,19 +2473,19 @@ def _deploy_email_series_internal(token, instance, data):
             }
 
             resp = requests.post(
-                f"{instance}/services/data/v66.0/connect/cms/contents",
+                f"{instance}/services/data/v67.0/connect/cms/contents",
                 headers={'Authorization': f'Bearer {token}'},
                 files=files,
-                timeout=30
+                timeout=15
             )
 
             if resp.status_code == 401 and try_refresh_token():
                 token = session.get('sf_access_token')
                 resp = requests.post(
-                    f"{instance}/services/data/v66.0/connect/cms/contents",
+                    f"{instance}/services/data/v67.0/connect/cms/contents",
                     headers={'Authorization': f'Bearer {token}'},
                     files=files,
-                    timeout=30
+                    timeout=15
                 )
 
             if resp.status_code in (200, 201):
@@ -2499,20 +2499,22 @@ def _deploy_email_series_internal(token, instance, data):
                     'contentKey': content_key,
                     'order': i + 1
                 })
-
-                try:
-                    pub_resp = requests.post(
-                        f"{instance}/services/data/v66.0/connect/cms/contents/{content_id}/publish",
-                        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-                        json={},
-                        timeout=15
-                    )
-                except Exception as pe:
-                    errors.append(f"Publish failed for email {i + 1}: {str(pe)[:100]}")
             else:
                 errors.append(f"Email {i + 1} upload failed: {resp.status_code} - {resp.text[:200]}")
         except Exception as e:
             errors.append(f"Email {i + 1}: {str(e)[:150]}")
+
+    # Step 2b: Batch-publish all created emails in one call
+    if created_emails:
+        pub_ids = [e['contentId'] for e in created_emails if e.get('contentId')]
+        if pub_ids:
+            try:
+                pub_resp = sf_api('POST', '/services/data/v67.0/connect/cms/contents/publish',
+                                  token, instance, {'contentIds': pub_ids})
+                if not pub_resp.ok:
+                    errors.append(f"Email publish: {pub_resp.status_code}")
+            except Exception as pe:
+                errors.append(f"Email publish: {str(pe)[:100]}")
 
     # Step 3: Create the flow if requested and we have emails
     flow_result = None
@@ -2573,7 +2575,7 @@ def _deploy_email_series_internal(token, instance, data):
                         'SOAPAction': 'deploy'
                     },
                     data=deploy_soap.encode('utf-8'),
-                    timeout=60
+                    timeout=10
                 )
 
                 if deploy_resp.status_code == 200 and '<id>' in deploy_resp.text:
@@ -2583,73 +2585,15 @@ def _deploy_email_series_internal(token, instance, data):
                     deploy_id_el = root.find('.//met:id', ns)
                     deploy_id = deploy_id_el.text if deploy_id_el is not None else ''
 
-                    # Poll checkDeployStatus until done (max 2 attempts × 2s = 4s to stay under Heroku 30s)
-                    deploy_status = 'InProgress'
-                    deploy_error_msg = ''
-                    for _poll in range(2):
-                        time.sleep(2)
-                        check_soap = f'''<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:met="http://soap.sforce.com/2006/04/metadata">
-  <soap:Header>
-    <met:SessionHeader><met:sessionId>{token}</met:sessionId></met:SessionHeader>
-  </soap:Header>
-  <soap:Body>
-    <met:checkDeployStatus>
-      <met:asyncProcessId>{deploy_id}</met:asyncProcessId>
-      <met:includeDetails>true</met:includeDetails>
-    </met:checkDeployStatus>
-  </soap:Body>
-</soap:Envelope>'''
-                        check_resp = requests.post(
-                            f"{instance}/services/Soap/m/67.0",
-                            headers={'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': 'checkDeployStatus'},
-                            data=check_soap.encode('utf-8'),
-                            timeout=15
-                        )
-                        if check_resp.status_code == 200:
-                            check_root = ET.fromstring(check_resp.text)
-                            done_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}done')
-                            success_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}success')
-                            status_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}status')
-                            if done_el is not None and done_el.text == 'true':
-                                if success_el is not None and success_el.text == 'true':
-                                    deploy_status = 'Succeeded'
-                                else:
-                                    deploy_status = 'Failed'
-                                    # Extract error message
-                                    problem_el = check_root.find('.//{http://soap.sforce.com/2006/04/metadata}problem')
-                                    if problem_el is not None and problem_el.text:
-                                        deploy_error_msg = problem_el.text[:300]
-                                    else:
-                                        deploy_error_msg = check_resp.text[:300]
-                                break
-                    else:
-                        deploy_status = 'Timeout'
-
-                    if deploy_status == 'Succeeded':
-                        flow_result = {
-                            'id': deploy_id,
-                            'name': flow_data['flowLabel'],
-                            'apiName': flow_api_name,
-                            'status': 'Deployed',
-                            'waitNote': f'Open in Flow Builder to add {EMAIL_SERIES[series_key]["wait_days"]}-day wait elements between emails'
-                        }
-                    elif deploy_status == 'Failed':
-                        errors.append(f"Flow deploy failed: {deploy_error_msg}")
-                        flow_result = {
-                            'name': flow_data['flowLabel'],
-                            'apiName': flow_api_name,
-                            'status': 'Failed',
-                            'error': deploy_error_msg
-                        }
-                    else:
-                        flow_result = {
-                            'id': deploy_id,
-                            'name': flow_data['flowLabel'],
-                            'apiName': flow_api_name,
-                            'status': 'Deploying (timeout waiting for confirmation)'
-                        }
+                    # Fire-and-forget: Salesforce deploys async — don't poll to stay under Heroku 30s
+                    wait_days = EMAIL_SERIES[series_key]['wait_days']
+                    flow_result = {
+                        'id': deploy_id,
+                        'name': flow_data['flowLabel'],
+                        'apiName': flow_api_name,
+                        'status': 'Deploying',
+                        'waitNote': f'Flow is deploying to Salesforce. Open in Flow Builder to add {wait_days}-day wait elements between emails.'
+                    }
                 else:
                     errors.append(f"Flow creation failed: {deploy_resp.status_code} - {deploy_resp.text[:200]}")
                     flow_result = {
@@ -2860,39 +2804,9 @@ def deploy_all():
     if brand_result.get('errors'):
         results['errors'].extend(brand_result['errors'])
 
-    # Pre-discover org-specific flow metadata (data graph + DMO) once for all series
+    # Org-specific flow metadata — use known defaults (no discovery calls to save time)
     org_data_graph = 'Marketing_Data_Graph'
     org_dmo = 'UnifiedssotIndividualInd1__dlm'
-    if email_series_list:
-        try:
-            headers = {'Authorization': f'Bearer {token}'}
-            dg_resp = requests.get(
-                f"{instance}/services/data/v67.0/tooling/query/",
-                params={'q': "SELECT DeveloperName FROM DataGraphDefinition LIMIT 5"},
-                headers=headers, timeout=5
-            )
-            if dg_resp.status_code == 200:
-                for rec in dg_resp.json().get('records', []):
-                    name = rec.get('DeveloperName', '')
-                    if 'Marketing' in name or 'marketing' in name:
-                        org_data_graph = name
-                        break
-                else:
-                    recs = dg_resp.json().get('records', [])
-                    if recs:
-                        org_data_graph = recs[0]['DeveloperName']
-
-            dmo_resp = requests.get(
-                f"{instance}/services/data/v67.0/tooling/query/",
-                params={'q': "SELECT QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName LIKE 'Unifiedssot%Individual%dlm' LIMIT 1"},
-                headers=headers, timeout=5
-            )
-            if dmo_resp.status_code == 200:
-                dmo_recs = dmo_resp.json().get('records', [])
-                if dmo_recs:
-                    org_dmo = dmo_recs[0]['QualifiedApiName']
-        except Exception:
-            pass  # Use defaults
 
     # Step 2: Deploy each selected email series
     for series_key in email_series_list:
