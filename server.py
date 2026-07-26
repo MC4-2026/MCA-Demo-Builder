@@ -1480,6 +1480,7 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
     content_ids = []
     errors = []
     brand_id = ''
+    brand_content_key = ''
 
     # 1. Upload images as sfdc_cms__image items
     images = config.get('images', [])
@@ -1512,7 +1513,9 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
             'contentBody': brand_body
         })
         if brand_resp.ok:
-            brand_id = brand_resp.json()['managedContentId']
+            brand_data = brand_resp.json()
+            brand_id = brand_data['managedContentId']
+            brand_content_key = brand_data.get('contentKey', brand_data.get('apiName', ''))
             content_ids.append(brand_id)
         else:
             err_detail = brand_resp.text[:300]
@@ -1536,6 +1539,7 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
     return {
         'success': True,
         'brandId': brand_id,
+        'brandContentKey': brand_content_key,
         'contentIds': content_ids,
         'totalCreated': len(content_ids),
         'errors': errors
@@ -2359,22 +2363,29 @@ def get_consent_config():
     return jsonify(result)
 
 
-def build_cms_email_content_json(email_html, subject, preheader, title=''):
+def build_cms_email_content_json(email_html, subject, preheader, title='', brand_content_key=''):
     """Build the CMS email contentBody structure for sfdc_cms__email.
 
     Matches the real MCA CMS email schema with top-level subjectLine, preheader,
     sfdc_cms:title, messagePurpose, and the block tree using definition/children.
+    If brand_content_key is provided, associates the email with the specified CMS brand.
     """
     block_id = str(uuid.uuid4())
     section_id = str(uuid.uuid4())
     column_id = str(uuid.uuid4())
     html_id = str(uuid.uuid4())
 
+    # Build brandSource — link to specific brand if content key provided
+    brand_source = {"defaultBrandOption": "sfdcBrand"}
+    if brand_content_key:
+        brand_source["sfdcBrandContentKey"] = brand_content_key
+
     return {
         "subjectLine": subject,
         "preheader": preheader or "",
         "sfdc_cms:title": title or subject,
         "messagePurpose": "promotional",
+        "lightning:brandSource": brand_source,
         "sfdc_cms:block": {
             "definition": "sfdc_cms/rootContentBlock",
             "id": block_id,
@@ -2428,6 +2439,7 @@ def _deploy_email_series_internal(token, instance, data):
     create_flow = data.get('createFlow', True)
     create_campaign = data.get('createCampaign', True)
     header_color = data.get('headerColor', None)
+    brand_content_key = data.get('brandContentKey', '')
 
     if series_key not in EMAIL_SERIES:
         return {'success': False, 'errors': [f'Invalid series: {series_key}'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
@@ -2453,7 +2465,8 @@ def _deploy_email_series_internal(token, instance, data):
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
 
         content_json = build_cms_email_content_json(
-            email_html, copy_data.get('subject', ''), copy_data.get('preheader', ''), title=email_title
+            email_html, copy_data.get('subject', ''), copy_data.get('preheader', ''),
+            title=email_title, brand_content_key=brand_content_key
         )
 
         try:
@@ -2897,6 +2910,7 @@ def deploy_all():
             'createCampaign': email_config.get('createCampaign', True),
             'headerColor': email_config.get('headerColor', None),
             'brandContentId': brand_result.get('brandId', ''),
+            'brandContentKey': brand_result.get('brandContentKey', ''),
             'dataGraph': org_data_graph,
             'dmoObject': org_dmo
         }
