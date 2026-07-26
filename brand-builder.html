@@ -287,8 +287,8 @@
 
     <!-- Action -->
     <div class="flex items-center gap-4 pt-2">
-      <button onclick="_emailCameFrom='step-preview';showStep('step-emails');initEmailSeriesUI()"
-        class="px-8 py-3 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
+      <button id="btnBuildEmailsPreview" onclick="_emailCameFrom='step-preview';showStep('step-emails');initEmailSeriesUI()"
+        class="hidden px-8 py-3 bg-accent text-white font-semibold rounded-lg hover:bg-accent/90 transition shadow-sm cursor-pointer text-lg flex items-center gap-2">
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         Build Email Series
       </button>
@@ -826,6 +826,13 @@ function showStep(id) {
     const el = document.getElementById(s);
     if (el) el.classList.toggle('hidden', s !== id);
   });
+  // Show "Build Email Series" on preview only if brand deployed or loaded from JSON
+  if (id === 'step-preview') {
+    const btn = document.getElementById('btnBuildEmailsPreview');
+    if (btn && (deployResults?.brand?.success)) {
+      btn.classList.remove('hidden');
+    }
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1293,6 +1300,10 @@ function importJSON() {
       if (data.brandName || data._analysisResult?.brandName) {
         document.getElementById('accountName').value = data.brandName || data._analysisResult?.brandName || '';
       }
+
+      // Show email builder button since brand is loaded
+      const emailBtn = document.getElementById('btnBuildEmailsPreview');
+      if (emailBtn) emailBtn.classList.remove('hidden');
 
       // Jump straight to preview
       renderPreview();
