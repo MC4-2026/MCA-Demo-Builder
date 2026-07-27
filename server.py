@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.3.1'  # 2.3.1 = fix email contentId extraction + remove email auto-publish (keep as drafts)
+_APP_VERSION = '2.3.2'  # 2.3.2 = add default brand tip in deploy UI + fix email "published" label to "draft"
 
 import os
 import re

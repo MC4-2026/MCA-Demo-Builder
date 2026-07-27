@@ -581,6 +581,10 @@
 
       <!-- Post-Brand: Next Steps (appears after brand deploy, if no email phases were pre-configured) -->
       <div id="postBrandOptions" class="hidden mt-4 pt-4 border-t border-gray-200">
+        <div class="mb-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-xs">
+          <strong>💡 Tip:</strong> Set this as your workspace's default brand so emails use it automatically:
+          CMS Workspace → ⚙️ Settings → Default Brand → Select → Save
+        </div>
         <p class="text-sm text-secondary font-semibold mb-3">Brand deployed! What's next?</p>
         <div class="flex flex-wrap gap-3">
           <button onclick="_emailCameFrom='step-deploy';showStep('step-emails');initEmailSeriesUI()"
@@ -646,6 +650,12 @@
       <div id="successEmailDetail" class="hidden mb-4 space-y-2"></div>
 
       <div id="successWarnings" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm"></div>
+
+      <!-- Default Brand Tip -->
+      <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
+        <strong>💡 Tip:</strong> To use this brand in the email editor, set it as your workspace's default brand:
+        <span class="block mt-1 text-xs text-blue-600">CMS Workspace → ⚙️ Settings (gear icon) → Default Brand → Select your brand → Save</span>
+      </div>
 
       <div class="flex items-center gap-4 flex-wrap">
         <a id="successCmsLink" href="#" target="_blank"
@@ -1972,7 +1982,7 @@ function showDeploySuccess(config, result) {
         <div class="space-y-1 text-xs text-muted">`;
 
       if (sr.emails && sr.emails.length > 0) {
-        detailHtml += `<div>✅ ${sr.emails.length} email(s) created and published</div>`;
+        detailHtml += `<div>✅ ${sr.emails.length} email(s) created (draft)</div>`;
       }
       if (sr.flow) {
         let flowIcon = '⚠️';
