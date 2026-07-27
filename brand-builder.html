@@ -462,6 +462,9 @@
             <span id="phase1ColorCount" class="text-sm font-bold text-secondary">0</span>
             <span class="text-xs text-muted ml-1">Colors</span>
           </div>
+          <div class="flex items-center px-3 py-1">
+            <span class="text-sm font-semibold text-primary italic">Endless Possibilities.</span>
+          </div>
         </div>
         <button id="btnPhase1" onclick="deployPhase1()"
           class="px-5 py-2 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
@@ -651,10 +654,22 @@
 
       <div id="successWarnings" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm"></div>
 
+      <!-- Larry Thanks You -->
+      <div class="mb-5 text-center">
+        <img src="https://image.s4.sfmc-content.com/lib/fe8e1574756d0d7b71/m/1/f250875f-3df4-4550-8712-3c65ccce6d47.png"
+          alt="Larry the Raccoon" class="w-28 h-28 mx-auto mb-2 object-contain" />
+        <p class="text-sm font-semibold text-secondary">Larry thanks you for your business! 🎉</p>
+      </div>
+
       <!-- Default Brand Tip -->
       <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
         <strong>💡 Tip:</strong> To use this brand in the email editor, set it as your workspace's default brand:
         <span class="block mt-1 text-xs text-blue-600">CMS Workspace → ⚙️ Settings (gear icon) → Default Brand → Select your brand → Save</span>
+      </div>
+
+      <!-- Error Contact Note -->
+      <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 text-xs">
+        <strong>Need help?</strong> Forward any errors to <strong>@Michael Cook</strong> on Slack<span id="errorCodesNote"></span>.
       </div>
 
       <div class="flex items-center gap-4 flex-wrap">
@@ -2019,6 +2034,12 @@ function showDeploySuccess(config, result) {
     warnEl.classList.remove('hidden');
   } else {
     document.getElementById('successWarnings').classList.add('hidden');
+  }
+
+  // Populate error codes for Slack note
+  const errCodesEl = document.getElementById('errorCodesNote');
+  if (errCodesEl && allErrors.length > 0) {
+    errCodesEl.textContent = ` — Error codes: ${allErrors.map((e, i) => 'E' + (i + 1)).join(', ')}`;
   }
 
   // Show/hide "Build & Deploy Email Series" button based on whether email series were already deployed
