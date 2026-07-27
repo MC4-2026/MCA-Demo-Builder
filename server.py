@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.3.0'  # 2.3.0 = fix email publish (was using wrong contentId field, emails stayed Draft)
+_APP_VERSION = '2.3.1'  # 2.3.1 = fix email contentId extraction + remove email auto-publish (keep as drafts)
 
 import os
 import re
@@ -2690,17 +2690,9 @@ def _deploy_email_series_internal(token, instance, data):
         except Exception as e:
             errors.append(f"Email {i + 1}: {str(e)[:150]}")
 
-    # Step 2b: Batch-publish all created emails in one call
-    if created_emails:
-        pub_ids = [e['contentId'] for e in created_emails if e.get('contentId')]
-        if pub_ids:
-            try:
-                pub_resp = sf_api('POST', '/services/data/v67.0/connect/cms/contents/publish',
-                                  token, instance, {'contentIds': pub_ids})
-                if not pub_resp.ok:
-                    errors.append(f"Email publish: {pub_resp.status_code}")
-            except Exception as pe:
-                errors.append(f"Email publish: {str(pe)[:100]}")
+    # Note: Emails are left as drafts (not published).
+    # The brand association and email content are set at creation time.
+    # Images are published separately in _deploy_brand_internal.
 
     # Step 3: Create the flow if requested and we have emails
     # Uses _soap_deploy_flow which submits + polls checkDeployStatus until done
