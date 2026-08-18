@@ -3144,19 +3144,30 @@ def _deploy_email_series_internal(token, instance, data):
                 'Name': campaign_name, 'Type': 'Email', 'Status': 'Planned',
                 'IsActive': True, 'Description': f"{brand_name} - {series['description']}"
             }
-            # BusinessUnitId is not a standard Campaign field — only include it
-            # if the org confirms it exists (via describe), to avoid INVALID_FIELD
-            include_bu = False
+            # BusinessUnitId is an MCA-specific Campaign field — only include it
+            # if the org confirms it exists (via describe), to avoid INVALID_FIELD.
+            # Orgs without this field still create functional campaigns but show
+            # the standard Campaign UI instead of the MCA Campaign Builder.
+            include_bu_campaign = False
+            include_bu_brief = False
             if bu_id:
                 try:
                     desc_resp = sf_api('GET', '/services/data/v67.0/sobjects/Campaign/describe',
                                        token, instance, timeout=5)
                     if desc_resp.ok:
                         field_names = {f['name'] for f in desc_resp.json().get('fields', [])}
-                        include_bu = 'BusinessUnitId' in field_names
+                        include_bu_campaign = 'BusinessUnitId' in field_names
                 except Exception:
                     pass
-            if include_bu and bu_id:
+                try:
+                    desc_resp2 = sf_api('GET', '/services/data/v67.0/sobjects/Brief/describe',
+                                        token, instance, timeout=5)
+                    if desc_resp2.ok:
+                        field_names2 = {f['name'] for f in desc_resp2.json().get('fields', [])}
+                        include_bu_brief = 'BusinessUnitId' in field_names2
+                except Exception:
+                    pass
+            if include_bu_campaign and bu_id:
                 camp_body['BusinessUnitId'] = bu_id
 
             brief_fields = {
@@ -3170,7 +3181,7 @@ def _deploy_email_series_internal(token, instance, data):
             }
             if brand_content_id:
                 brief_fields['BrandId'] = brand_content_id
-            if include_bu and bu_id:
+            if include_bu_brief and bu_id:
                 brief_fields['BusinessUnitId'] = bu_id
 
             # Composite: Campaign -> Brief -> link Campaign.BriefId -> BriefPlanSteps
@@ -3221,6 +3232,9 @@ def _deploy_email_series_internal(token, instance, data):
                         'name': campaign_name,
                         'status': 'Created'
                     }
+                    if bu_id and not include_bu_campaign:
+                        campaign_result['note'] = ('Campaign created without Business Unit link — '
+                                                   'open it from the Marketing app to see the full MCA view.')
                     if brief_sub and brief_sub.get('httpStatusCode') in (200, 201):
                         campaign_result['briefId'] = brief_sub['body'].get('id', '')
                         campaign_result['briefName'] = brief_name
