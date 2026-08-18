@@ -2321,7 +2321,8 @@ function onEmailLogoChange() {
   emailSeriesState.selectedLogo = url || null;
   const preview = document.getElementById('emailLogoPreview');
   if (url) {
-    preview.innerHTML = `<img src="${url}" alt="Logo" style="max-width:60px;max-height:36px;object-fit:contain;">`;
+    const proxied = '/api/img-proxy?url=' + encodeURIComponent(url);
+    preview.innerHTML = `<img src="${proxied}" alt="Logo" style="max-width:60px;max-height:36px;object-fit:contain;" onerror="this.parentElement.innerHTML='<span class=\\'text-xs text-muted\\'>Logo</span>'">`;
   } else {
     preview.innerHTML = '<span class="text-xs text-muted">No logo</span>';
   }
