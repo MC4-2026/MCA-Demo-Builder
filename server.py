@@ -2289,8 +2289,14 @@ def generate_series_copy(series_key, config):
     return results
 
 
-def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=None):
-    """Render a single email to full HTML, given copy fields + brand config + images."""
+def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=None, preview=False):
+    """Render a single email to full HTML, given copy fields + brand config + images.
+
+    When preview=True, image URLs are proxied through /api/img-proxy so they
+    render in the browser preview modal (avoids cross-origin failures for SVGs
+    and Next.js images). For deployment, preview should be False so the
+    original/CMS URLs are used.
+    """
     colors = config.get('colors', [])
     primary = header_color or (colors[0]['hex'] if len(colors) > 0 else '#0176d3')
     secondary = colors[1]['hex'] if len(colors) > 1 else '#032d60'
@@ -2311,16 +2317,22 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
     cta_text = copy_data.get('cta_text', 'Learn More')
     cta_url = copy_data.get('cta_url', '#')
 
+    def _img_src(url):
+        """Return proxied URL for previews, original URL for deployment."""
+        if preview and url:
+            return f'/api/img-proxy?url={quote(url, safe="")}'
+        return url
+
     logo_section = ''
     if logo_url:
-        logo_section = f'<img src="{logo_url}" alt="{brand_name}" style="max-width:200px;max-height:60px;display:block;margin:0 auto;">'
+        logo_section = f'<img src="{_img_src(logo_url)}" alt="{brand_name}" style="max-width:200px;max-height:60px;display:block;margin:0 auto;">'
 
     hero_section = ''
     if hero_url:
         hero_section = f'''
         <tr>
           <td style="padding:0;">
-            <img src="{hero_url}" alt="{brand_name}" style="width:100%;max-width:600px;display:block;height:auto;">
+            <img src="{_img_src(hero_url)}" alt="{brand_name}" style="width:100%;max-width:600px;display:block;height:auto;">
           </td>
         </tr>'''
 
@@ -2415,7 +2427,7 @@ def get_email_preview():
     hero_url = data.get('heroUrl', '')
     header_color = data.get('headerColor', None)
 
-    html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
+    html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color, preview=True)
     return jsonify({'html': html})
 
 
