@@ -1179,27 +1179,17 @@ function renderImages(images) {
     div.className = 'relative';
     const isSvg = img.url && (img.url.toLowerCase().endsWith('.svg') || img.url.includes('image/svg'));
     const imgLabel = img.label || img.alt || 'Image';
-    // For SVGs and cross-origin images, proxy through our server to avoid CORS failures
+    // ALWAYS proxy all images through our server — cross-origin sites (especially
+    // Next.js _next/image) block direct browser loads from different domains
     const proxyUrl = '/api/img-proxy?url=' + encodeURIComponent(img.url);
-    const displayUrl = isSvg ? proxyUrl : img.url;
     const fallbackPlaceholder = `<div class='flex flex-col items-center justify-center h-full gap-1 p-2'><svg class='w-8 h-8 text-gray-400' fill='none' stroke='currentColor' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z'></path></svg><span class='text-muted text-xs text-center'>${imgLabel.replace(/'/g, "\\'")}</span></div>`;
-    let imgHtml;
-    if (isSvg) {
-      // SVG: render via proxied <img> tag (avoids CORS), with SVG badge
-      imgHtml = `
-        <div class="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden relative">
-          <img src="${proxyUrl}" alt="${img.alt}" class="w-full h-full object-contain p-2"
+    const objectFit = isSvg ? 'object-contain p-2' : 'object-cover';
+    let imgHtml = `
+        <div class="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden${isSvg ? ' relative' : ''}">
+          <img src="${proxyUrl}" alt="${img.alt}" class="w-full h-full ${objectFit}"
             onerror="this.parentElement.innerHTML='${fallbackPlaceholder}'" />
-          <span class="absolute top-1 right-1 bg-amber-100 text-amber-700 text-[10px] font-mono px-1.5 py-0.5 rounded">SVG</span>
+          ${isSvg ? '<span class="absolute top-1 right-1 bg-amber-100 text-amber-700 text-[10px] font-mono px-1.5 py-0.5 rounded">SVG</span>' : ''}
         </div>`;
-    } else {
-      // Non-SVG: load direct, fallback to proxy on error, then placeholder
-      imgHtml = `
-        <div class="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
-          <img src="${img.url}" alt="${img.alt}" class="w-full h-full object-cover"
-            onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src='${proxyUrl}';}else{this.parentElement.innerHTML='${fallbackPlaceholder}';}" />
-        </div>`;
-    }
     div.innerHTML = `
       <input type="checkbox" id="img-${i}" class="img-check sr-only" ${img.selected ? 'checked' : ''} onchange="toggleImage(${i}, this.checked)" />
       <label for="img-${i}" class="block cursor-pointer rounded-lg overflow-hidden border-2 border-gray-200 hover:border-primary/50 transition">

@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.5.0'  # 2.5.0 = Smart image extraction (hero priority, third-party filter, SVG proxy)
+_APP_VERSION = '2.5.1'  # 2.5.1 = Proxy all preview images through server (fixes cross-origin load failures)
 
 import os
 import re
@@ -1061,7 +1061,12 @@ def img_proxy():
     except Exception:
         return jsonify({'error': 'Invalid URL'}), 400
     try:
-        resp = requests.get(target_url, headers=HEADERS, timeout=10, stream=True)
+        # Build headers with proper Referer for the target domain (required by
+        # Next.js _next/image and other CDNs that check origin)
+        fetch_headers = dict(HEADERS)
+        fetch_headers['Referer'] = f'{parsed.scheme}://{parsed.netloc}/'
+        fetch_headers['Accept'] = 'image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        resp = requests.get(target_url, headers=fetch_headers, timeout=10)
         resp.raise_for_status()
         content_type = resp.headers.get('Content-Type', 'image/png')
         # Only proxy image content types (including SVG)
