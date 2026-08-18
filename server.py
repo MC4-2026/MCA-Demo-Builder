@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.4.2'  # 2.4.2 = Solar Lending sub-industry with dedicated email copy
+_APP_VERSION = '2.5.0'  # 2.5.0 = Smart image extraction (hero priority, third-party filter, SVG proxy)
 
 import os
 import re
@@ -596,27 +596,65 @@ def _is_svg_url(url):
 
 
 def extract_images(soup, base_url):
-    """LC/MC brand-analysis pipeline — image extraction stage."""
-    images = []
+    """LC/MC brand-analysis pipeline — image extraction stage.
+
+    Strategy: collect logos and hero/product images into separate buckets,
+    filter out third-party media logos (Forbes, Bloomberg, etc.), then merge
+    with guaranteed slots for hero images.
+    """
+    logos = []
+    heroes = []
     seen = set()
     parsed_base = urlparse(base_url)
+    brand_domain = parsed_base.netloc.lower().replace('www.', '')
 
-    def add_image(src, img_type, alt):
-        if not src or src.startswith('data:'):
-            return
-        url = resolve_url(src, base_url)
-        if not url or url in seen:
-            return
-        # Skip tiny tracking pixels, svgs with data URIs, icons, etc.
-        skip_patterns = ['pixel', 'tracking', 'spacer', '1x1', 'blank.gif', 'beacon',
-                         'icon-', 'favicon', 'spinner', 'loading.', 'placeholder']
-        if any(x in url.lower() for x in skip_patterns):
-            return
-        # Skip very small SVGs that are likely icons
-        if url.lower().endswith('.svg') and img_type != 'logo':
-            return
-        seen.add(url)
-        # Derive a readable display label — prefer alt text, fall back to URL filename
+    # ── Third-party / press logo filter ──
+    # Common media, press, award, and partner logo domains & keywords that
+    # should NOT consume brand-image slots.
+    _THIRD_PARTY_PATTERNS = re.compile(
+        r'forbes|bloomberg|cnbc|wsj|wall.?street|fortune|fast.?company|'
+        r'business.?insider|techcrunch|reuters|inc\.com|entrepreneur\.com|'
+        r'yahoo|cnn|nbc|abc|cbs|fox.?news|the.?verge|wired|mashable|'
+        r'new.?york.?times|nytimes|washington.?post|usa.?today|bbc|'
+        r'huffpost|huffington|time\.com|guardian|independent|'
+        r'trustpilot|bbb|better.?business|google.?play|app.?store|'
+        r'apple\.com/app|play\.google|badge|award|certification|seal|'
+        r'accredited|rated|verified|partner.?logo|client.?logo|'
+        r'as.?seen|featured.?in|press.?logo|media.?logo|news.?logo',
+        re.I
+    )
+
+    def _is_third_party_logo(url, alt_text):
+        """Return True if this image is likely a third-party media/press logo."""
+        url_lower = url.lower()
+        alt_lower = (alt_text or '').lower()
+        combined = url_lower + ' ' + alt_lower
+        # Check against known third-party patterns
+        if _THIRD_PARTY_PATTERNS.search(combined):
+            return True
+        # Check if the image is hosted on a completely different domain
+        try:
+            img_domain = urlparse(url).netloc.lower().replace('www.', '')
+            if img_domain and brand_domain and img_domain != brand_domain:
+                # Image from another domain — could be CDN (ok) or third-party (bad)
+                # CDN subdomains often share the root domain
+                brand_root = '.'.join(brand_domain.split('.')[-2:])
+                img_root = '.'.join(img_domain.split('.')[-2:])
+                if brand_root != img_root:
+                    # Different root domain — check if it's a known CDN
+                    cdn_patterns = ['cloudfront', 'cloudinary', 'imgix', 'akamai',
+                                    'fastly', 'cdn', 'amazonaws', 'azureedge',
+                                    'contentful', 'prismic', 'sanity', 'storyblok',
+                                    'datocms', 'vercel', 'netlify', 'imgbb']
+                    if not any(p in img_domain for p in cdn_patterns):
+                        # Not a CDN and not the brand domain — likely third-party
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _make_entry(url, img_type, alt):
+        """Build an image entry dict with a readable display label."""
         display_label = alt.strip() if alt else ''
         generic_alts = ('', 'image', 'hero image', 'background image', 'hero', 'logo')
         if not display_label or display_label.lower() in generic_alts:
@@ -625,57 +663,91 @@ def extract_images(soup, base_url):
                 fname = path_part.split('/')[-1].rsplit('.', 1)[0] if '/' in path_part else ''
                 if fname and len(fname) > 2:
                     cleaned = re.sub(r'[-_]+', ' ', fname).strip().title()
-                    # Remove common noise like dimensions (e.g. "1200x600")
                     cleaned = re.sub(r'\b\d{3,4}x\d{3,4}\b', '', cleaned).strip()
                     if cleaned and len(cleaned) > 2:
                         display_label = cleaned[:50]
             except Exception:
                 pass
         if not display_label or display_label.lower() in generic_alts:
-            display_label = f'{img_type.title()} {len(images) + 1}'
-        images.append({'url': url, 'type': img_type, 'alt': alt or img_type.title(), 'label': display_label, 'selected': True})
+            display_label = f'{img_type.title()} {len(logos) + len(heroes) + 1}'
+        return {'url': url, 'type': img_type, 'alt': alt or img_type.title(),
+                'label': display_label, 'selected': True}
 
-    # Logo candidates
+    def _skip_url(url):
+        """Return True for tracking pixels, icons, and other junk images."""
+        skip_patterns = ['pixel', 'tracking', 'spacer', '1x1', 'blank.gif', 'beacon',
+                         'icon-', 'favicon', 'spinner', 'loading.', 'placeholder']
+        return any(x in url.lower() for x in skip_patterns)
+
+    def add_logo(src, alt):
+        if not src or src.startswith('data:'):
+            return
+        url = resolve_url(src, base_url)
+        if not url or url in seen:
+            return
+        if _skip_url(url):
+            return
+        # Filter out third-party press/media logos
+        if _is_third_party_logo(url, alt):
+            return
+        seen.add(url)
+        logos.append(_make_entry(url, 'logo', alt))
+
+    def add_hero(src, alt):
+        if not src or src.startswith('data:'):
+            return
+        url = resolve_url(src, base_url)
+        if not url or url in seen:
+            return
+        if _skip_url(url):
+            return
+        # Skip very small SVGs that are likely icons (but allow SVG logos)
+        if url.lower().endswith('.svg'):
+            return
+        seen.add(url)
+        heroes.append(_make_entry(url, 'hero', alt))
+
+    # ── Phase 1: Collect logos ──
     logo_selectors = [
-        ('header img', 'logo'),
-        ('nav img', 'logo'),
-        ('[class*="logo"] img', 'logo'),
-        ('img[class*="logo"]', 'logo'),
-        ('img[alt*="logo"]', 'logo'),
-        ('img[src*="logo"]', 'logo'),
-        ('a[class*="logo"] img', 'logo'),
-        ('[id*="logo"] img', 'logo'),
-        ('img[id*="logo"]', 'logo'),
-        ('.navbar-brand img', 'logo'),
-        ('[class*="brand"] img', 'logo'),
-        # Also check <picture> inside logo areas
-        ('header picture source', 'logo'),
-        ('[class*="logo"] picture source', 'logo'),
+        'header img', 'nav img',
+        '[class*="logo"] img', 'img[class*="logo"]',
+        'img[alt*="logo"]', 'img[src*="logo"]',
+        'a[class*="logo"] img', '[id*="logo"] img',
+        'img[id*="logo"]', '.navbar-brand img',
+        '[class*="brand"] img',
     ]
-    for selector, img_type in logo_selectors:
+    for selector in logo_selectors:
         for el in soup.select(selector):
-            if el.name == 'source':
-                src = el.get('srcset', '')
-                if src:
-                    src = parse_srcset_best(src) or src.split(',')[0].strip().split()[0]
-                alt = 'Logo'
-            else:
-                src = get_best_src(el)
-                alt = el.get('alt', 'Logo')
-            add_image(src, img_type, alt)
+            src = get_best_src(el)
+            alt = el.get('alt', 'Logo')
+            add_logo(src, alt)
 
-    # SVG logos — check for SVG <img> with logo in src
+    # <picture> inside logo areas
+    for selector in ['header picture source', '[class*="logo"] picture source']:
+        for el in soup.select(selector):
+            src = el.get('srcset', '')
+            if src:
+                src = parse_srcset_best(src) or src.split(',')[0].strip().split()[0]
+            add_logo(src, 'Logo')
+
+    # SVG logos — header/nav
     for img in soup.select('header img[src$=".svg"], nav img[src$=".svg"]'):
-        add_image(img.get('src', ''), 'logo', img.get('alt', 'Logo'))
+        src = img.get('src', '')
+        if not src or src.startswith('data:'):
+            continue
+        url = resolve_url(src, base_url)
+        if url and url not in seen and not _is_third_party_logo(url, img.get('alt', '')):
+            seen.add(url)
+            logos.append(_make_entry(url, 'logo', img.get('alt', 'Logo')))
 
-    # <picture> elements — extract best source
+    # ── Phase 2: Collect hero / product images ──
+
+    # <picture> elements
     for picture in soup.find_all('picture'):
         sources = picture.find_all('source')
         img_el = picture.find('img')
         best_src = ''
         alt = ''
-
-        # Try sources first (usually higher quality)
         for source in sources:
             srcset = source.get('srcset', '')
             if srcset:
@@ -683,30 +755,21 @@ def extract_images(soup, base_url):
                 if candidate:
                     best_src = candidate
                     break
-
-        # Fallback to the <img> inside <picture>
         if not best_src and img_el:
             best_src = get_best_src(img_el)
             alt = img_el.get('alt', '')
-
         if best_src:
-            # Determine context
-            parent_class = ' '.join(picture.parent.get('class', [])) if picture.parent else ''
-            context = parent_class.lower()
-            is_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead', context))
-            add_image(best_src, 'hero' if is_hero else 'hero', alt or 'Image')
+            add_hero(best_src, alt or 'Image')
 
-    # Hero / large images — all <img> tags
+    # All <img> tags — detect large / hero images
     for img in soup.find_all('img'):
         src = get_best_src(img)
         alt = img.get('alt', '')
         if not src:
-            # Try srcset on the img itself
             srcset = img.get('srcset', '')
             if srcset:
                 src = parse_srcset_best(srcset)
         if not src:
-            # Try lazy-load attributes (data-src, data-lazy-src, data-original)
             for lazy_attr in ('data-src', 'data-lazy-src', 'data-original', 'data-full-src'):
                 lazy_val = img.get(lazy_attr, '')
                 if lazy_val and not lazy_val.startswith('data:'):
@@ -725,11 +788,10 @@ def extract_images(soup, base_url):
             h = 0
         is_large = w > 400 or h > 200
 
-        # Check CSS classes for size hints
         img_classes = ' '.join(img.get('class', [])).lower() if img.get('class') else ''
         is_large = is_large or bool(re.search(r'full|large|wide|cover|hero|banner|featured', img_classes))
 
-        # Walk up to 3 ancestor levels for context
+        # Walk up to 4 ancestor levels for context
         parent_class = ' '.join(img.parent.get('class', [])) if img.parent else ''
         grandparent_class = ' '.join(img.parent.parent.get('class', [])) if img.parent and img.parent.parent else ''
         great_gp_class = ''
@@ -737,10 +799,14 @@ def extract_images(soup, base_url):
             great_gp_class = ' '.join(img.parent.parent.parent.get('class', [])) if img.parent and img.parent.parent and img.parent.parent.parent else ''
         except (AttributeError, TypeError):
             pass
-        context = (parent_class + ' ' + grandparent_class + ' ' + great_gp_class).lower()
+        great_great_gp_class = ''
+        try:
+            great_great_gp_class = ' '.join(img.parent.parent.parent.parent.get('class', [])) if img.parent and img.parent.parent and img.parent.parent.parent and img.parent.parent.parent.parent else ''
+        except (AttributeError, TypeError):
+            pass
+        context = (parent_class + ' ' + grandparent_class + ' ' + great_gp_class + ' ' + great_great_gp_class).lower()
         in_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead|promo|spotlight|showcase|intro|landing', context))
 
-        # Also check parent tag names — images inside <section>, <main>, or <article> near the top are often hero images
         parent_tags = []
         p = img.parent
         for _ in range(4):
@@ -752,36 +818,46 @@ def extract_images(soup, base_url):
         in_main_section = any(t in ('section', 'main', 'article') for t in parent_tags)
 
         src_hint = bool(re.search(r'hero|banner|featured|cover|main|splash|carousel|promo|spotlight|header|home|landing', src, re.I))
-        # Next.js/_next/image pattern: detect large quality images (q=75+ or w=1920+ in query params)
+        # Next.js /_next/image — detect large-quality images
         nextjs_large = bool(re.search(r'_next/image.*[?&]w=(1[2-9]\d{2}|[2-9]\d{3})', src, re.I))
+        # Also catch any _next/image with decent quality
+        nextjs_any = bool(re.search(r'_next/image', src, re.I))
 
-        if is_large or in_hero or src_hint or nextjs_large or (in_main_section and (w > 300 or h > 150)):
-            add_image(src, 'hero', alt or 'Hero Image')
+        if is_large or in_hero or src_hint or nextjs_large or (nextjs_any and (w > 200 or h > 100)) or (in_main_section and (w > 300 or h > 150)):
+            add_hero(src, alt or 'Hero Image')
 
     # Inline style background images
     for el in soup.find_all(style=re.compile(r'background')):
         style = el.get('style', '')
         for m in re.finditer(r'url\(["\']?([^"\')\s]+)["\']?\)', style):
-            add_image(m.group(1), 'hero', 'Background Image')
+            add_hero(m.group(1), 'Background Image')
 
     # CSS background-image in <style> blocks
     for style_tag in soup.find_all('style'):
         css_text = style_tag.get_text()
         for m in re.finditer(r'background(?:-image)?\s*:\s*[^;]*url\(["\']?([^"\')\s]+)["\']?\)', css_text):
             src = m.group(1)
-            # Only include if it looks like a real image (not a gradient or icon)
             if re.search(r'\.(jpg|jpeg|png|webp|gif)', src, re.I):
-                add_image(src, 'hero', 'Background Image')
+                add_hero(src, 'Background Image')
 
     # data-background attributes (common in slider/parallax plugins)
     for el in soup.find_all(attrs={'data-background': True}):
-        add_image(el['data-background'], 'hero', 'Background Image')
+        add_hero(el['data-background'], 'Background Image')
     for el in soup.find_all(attrs={'data-bg': True}):
-        add_image(el['data-bg'], 'hero', 'Background Image')
+        add_hero(el['data-bg'], 'Background Image')
     for el in soup.find_all(attrs={'data-bg-src': True}):
-        add_image(el['data-bg-src'], 'hero', 'Background Image')
+        add_hero(el['data-bg-src'], 'Background Image')
 
-    return images[:12]
+    # ── Phase 3: Merge with guaranteed slots ──
+    # Reserve up to 4 slots for logos, up to 10 for heroes, total max 14
+    MAX_LOGOS = 4
+    MAX_HEROES = 10
+    MAX_TOTAL = 14
+    final_logos = logos[:MAX_LOGOS]
+    remaining_slots = MAX_TOTAL - len(final_logos)
+    final_heroes = heroes[:min(MAX_HEROES, remaining_slots)]
+
+    return final_logos + final_heroes
 
 
 # ─── Button Style ───
@@ -963,6 +1039,44 @@ def analyze():
 def api_version():
     """Return current app version for deploy verification."""
     return jsonify({'version': _APP_VERSION, 'engine': _ENGINE_REV})
+
+
+@app.route('/api/img-proxy')
+def img_proxy():
+    """Proxy an external image to avoid CORS issues in browser previews.
+
+    Usage: /api/img-proxy?url=https://example.com/logo.svg
+    Streams the image through the server so the browser can render it
+    even when the origin doesn't set CORS headers (common with SVGs).
+    """
+    from flask import Response
+    target_url = request.args.get('url', '')
+    if not target_url:
+        return jsonify({'error': 'Missing url parameter'}), 400
+    # Security: only allow image-like URLs
+    try:
+        parsed = urlparse(target_url)
+        if parsed.scheme not in ('http', 'https'):
+            return jsonify({'error': 'Invalid URL scheme'}), 400
+    except Exception:
+        return jsonify({'error': 'Invalid URL'}), 400
+    try:
+        resp = requests.get(target_url, headers=HEADERS, timeout=10, stream=True)
+        resp.raise_for_status()
+        content_type = resp.headers.get('Content-Type', 'image/png')
+        # Only proxy image content types (including SVG)
+        if not (content_type.startswith('image/') or 'svg' in content_type):
+            return jsonify({'error': 'Not an image'}), 400
+        return Response(
+            resp.content,
+            content_type=content_type,
+            headers={
+                'Cache-Control': 'public, max-age=3600',
+                'Access-Control-Allow-Origin': '*'
+            }
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch image: {str(e)}'}), 502
 
 
 @app.route('/api/status/<job_id>')
