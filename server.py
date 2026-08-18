@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.4.0'  # 2.4.0 = SVG→PNG logo conversion, CMS media URLs in emails, campaign creation reliability, hero image detection
+_APP_VERSION = '2.4.1'  # 2.4.1 = SVG preview thumbnails in brand preview UI
 
 import os
 import re
