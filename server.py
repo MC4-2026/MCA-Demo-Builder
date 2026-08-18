@@ -3144,7 +3144,19 @@ def _deploy_email_series_internal(token, instance, data):
                 'Name': campaign_name, 'Type': 'Email', 'Status': 'Planned',
                 'IsActive': True, 'Description': f"{brand_name} - {series['description']}"
             }
+            # BusinessUnitId is not a standard Campaign field — only include it
+            # if the org confirms it exists (via describe), to avoid INVALID_FIELD
+            include_bu = False
             if bu_id:
+                try:
+                    desc_resp = sf_api('GET', '/services/data/v67.0/sobjects/Campaign/describe',
+                                       token, instance, timeout=5)
+                    if desc_resp.ok:
+                        field_names = {f['name'] for f in desc_resp.json().get('fields', [])}
+                        include_bu = 'BusinessUnitId' in field_names
+                except Exception:
+                    pass
+            if include_bu and bu_id:
                 camp_body['BusinessUnitId'] = bu_id
 
             brief_fields = {
@@ -3158,7 +3170,7 @@ def _deploy_email_series_internal(token, instance, data):
             }
             if brand_content_id:
                 brief_fields['BrandId'] = brand_content_id
-            if bu_id:
+            if include_bu and bu_id:
                 brief_fields['BusinessUnitId'] = bu_id
 
             # Composite: Campaign -> Brief -> link Campaign.BriefId -> BriefPlanSteps
