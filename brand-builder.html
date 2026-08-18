@@ -1900,7 +1900,8 @@ async function deployEmailSeries(seriesKey, phaseNum) {
         createCampaign: emailConfig.createCampaign,
         headerColor: emailConfig.headerColor,
         brandContentId: deployResults?.brand?.brandId || '',
-        brandContentKey: deployResults?.brand?.brandContentKey || ''
+        brandContentKey: deployResults?.brand?.brandContentKey || '',
+        imageMap: deployResults?.brand?.imageMap || {}
       })
     });
 

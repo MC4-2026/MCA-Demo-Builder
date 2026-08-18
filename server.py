@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.3.3'  # 2.3.3 = Endless Possibilities tagline, Larry thank-you, error contact note
+_APP_VERSION = '2.4.0'  # 2.4.0 = SVG→PNG logo conversion, CMS media URLs in emails, campaign creation reliability, hero image detection
 
 import os
 import re
@@ -27,6 +27,12 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, send_from_directory, redirect, session
 from flask_cors import CORS
+
+try:
+    import cairosvg
+    HAS_CAIROSVG = True
+except ImportError:
+    HAS_CAIROSVG = False
 
 app = Flask(__name__, static_folder='.')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-prod')
@@ -551,6 +557,34 @@ def parse_srcset_best(srcset_val):
     return best_url or ''
 
 
+def _svg_to_png_bytes(svg_url):
+    """Fetch an SVG from a URL and convert it to PNG bytes.
+    Returns (png_bytes, error_msg). If conversion fails, returns (None, error_msg)."""
+    if not HAS_CAIROSVG:
+        return None, 'cairosvg not installed'
+    try:
+        resp = requests.get(svg_url, headers=HEADERS, timeout=10)
+        resp.raise_for_status()
+        content_type = resp.headers.get('content-type', '').lower()
+        svg_data = resp.content
+        # Verify it's actually SVG content
+        if b'<svg' not in svg_data[:500].lower():
+            return None, 'Not valid SVG content'
+        png_bytes = cairosvg.svg2png(bytestring=svg_data, output_width=600, output_height=200)
+        return png_bytes, None
+    except Exception as e:
+        return None, f'SVG conversion failed: {str(e)[:100]}'
+
+
+def _is_svg_url(url):
+    """Check if a URL points to an SVG file."""
+    if not url:
+        return False
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    return path.endswith('.svg') or 'image/svg' in path
+
+
 def extract_images(soup, base_url):
     """LC/MC brand-analysis pipeline — image extraction stage."""
     images = []
@@ -662,6 +696,13 @@ def extract_images(soup, base_url):
             if srcset:
                 src = parse_srcset_best(srcset)
         if not src:
+            # Try lazy-load attributes (data-src, data-lazy-src, data-original)
+            for lazy_attr in ('data-src', 'data-lazy-src', 'data-original', 'data-full-src'):
+                lazy_val = img.get(lazy_attr, '')
+                if lazy_val and not lazy_val.startswith('data:'):
+                    src = lazy_val
+                    break
+        if not src:
             continue
 
         try:
@@ -678,14 +719,33 @@ def extract_images(soup, base_url):
         img_classes = ' '.join(img.get('class', [])).lower() if img.get('class') else ''
         is_large = is_large or bool(re.search(r'full|large|wide|cover|hero|banner|featured', img_classes))
 
+        # Walk up to 3 ancestor levels for context
         parent_class = ' '.join(img.parent.get('class', [])) if img.parent else ''
         grandparent_class = ' '.join(img.parent.parent.get('class', [])) if img.parent and img.parent.parent else ''
-        context = (parent_class + ' ' + grandparent_class).lower()
-        in_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead|promo|spotlight', context))
+        great_gp_class = ''
+        try:
+            great_gp_class = ' '.join(img.parent.parent.parent.get('class', [])) if img.parent and img.parent.parent and img.parent.parent.parent else ''
+        except (AttributeError, TypeError):
+            pass
+        context = (parent_class + ' ' + grandparent_class + ' ' + great_gp_class).lower()
+        in_hero = bool(re.search(r'hero|banner|jumbotron|splash|featured|carousel|slider|masthead|promo|spotlight|showcase|intro|landing', context))
 
-        src_hint = bool(re.search(r'hero|banner|featured|cover|main|splash|carousel|promo|spotlight|header', src, re.I))
+        # Also check parent tag names — images inside <section>, <main>, or <article> near the top are often hero images
+        parent_tags = []
+        p = img.parent
+        for _ in range(4):
+            if p and p.name:
+                parent_tags.append(p.name)
+                p = p.parent
+            else:
+                break
+        in_main_section = any(t in ('section', 'main', 'article') for t in parent_tags)
 
-        if is_large or in_hero or src_hint:
+        src_hint = bool(re.search(r'hero|banner|featured|cover|main|splash|carousel|promo|spotlight|header|home|landing', src, re.I))
+        # Next.js/_next/image pattern: detect large quality images (q=75+ or w=1920+ in query params)
+        nextjs_large = bool(re.search(r'_next/image.*[?&]w=(1[2-9]\d{2}|[2-9]\d{3})', src, re.I))
+
+        if is_large or in_hero or src_hint or nextjs_large or (in_main_section and (w > 300 or h > 150)):
             add_image(src, 'hero', alt or 'Hero Image')
 
     # Inline style background images
@@ -1483,30 +1543,96 @@ def create_workspace():
 
 def _deploy_brand_internal(token, instance, config, workspace_id):
     """Core brand deploy logic: uploads images + creates brand + publishes.
-    Returns dict with brandId, contentIds, totalCreated, errors, success."""
+    Returns dict with brandId, contentIds, totalCreated, errors, success,
+    and imageMap: {original_url: {contentKey, managedContentId, cmsUrl, type}}."""
     content_ids = []
     errors = []
     brand_id = ''
     brand_content_key = ''
+    image_map = {}  # original_url -> {contentKey, managedContentId, cmsUrl, type}
 
     # 1. Upload images as sfdc_cms__image items
     images = config.get('images', [])
     for img in images:
+        original_url = img.get('url', '')
+        img_title = (config.get('brandName', 'Brand') + '_' + (img.get('alt', 'image'))[:40]).replace(' ', '_')
         try:
-            img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
-                'contentSpaceOrFolderId': workspace_id,
-                'contentType': 'sfdc_cms__image',
-                'title': (config.get('brandName', 'Brand') + '_' + (img.get('alt', 'image'))[:40]).replace(' ', '_'),
-                'contentBody': {
-                    'sfdc_cms:media': {
-                        'source': {'type': 'url', 'url': img['url']}
+            # SVG handling: convert to PNG for email compatibility
+            is_svg = _is_svg_url(original_url)
+            if is_svg:
+                png_bytes, svg_err = _svg_to_png_bytes(original_url)
+                if png_bytes:
+                    # Upload PNG as file (multipart) instead of URL reference
+                    png_b64 = base64.b64encode(png_bytes).decode('utf-8')
+                    input_param = json.dumps({
+                        'contentSpaceOrFolderId': workspace_id,
+                        'contentType': 'sfdc_cms__image',
+                        'title': img_title,
+                        'contentBody': {
+                            'sfdc_cms:media': {
+                                'source': {
+                                    'type': 'file',
+                                    'mimeType': 'image/png',
+                                    'fileName': img_title + '.png'
+                                }
+                            }
+                        }
+                    })
+                    files = {
+                        'ManagedContentInputParam': (None, input_param, 'application/json'),
+                        'sfdc_cms:media': (img_title + '.png', png_bytes, 'image/png')
                     }
-                }
-            })
-            if img_resp.ok:
-                content_ids.append(img_resp.json()['managedContentId'])
+                    img_resp = requests.post(
+                        f"{instance}/services/data/v62.0/connect/cms/contents",
+                        headers={'Authorization': f'Bearer {token}'},
+                        files=files,
+                        timeout=15
+                    )
+                else:
+                    # SVG conversion failed — fall back to URL reference (won't work in email but brand still gets it)
+                    errors.append(f'SVG→PNG conversion skipped for {img.get("alt", "image")}: {svg_err}')
+                    img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+                        'contentSpaceOrFolderId': workspace_id,
+                        'contentType': 'sfdc_cms__image',
+                        'title': img_title,
+                        'contentBody': {
+                            'sfdc_cms:media': {
+                                'source': {'type': 'url', 'url': original_url}
+                            }
+                        }
+                    })
             else:
-                errors.append(f'Image upload failed: {img.get("alt", "unknown")}')
+                # Non-SVG: upload as URL reference (existing behavior)
+                img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+                    'contentSpaceOrFolderId': workspace_id,
+                    'contentType': 'sfdc_cms__image',
+                    'title': img_title,
+                    'contentBody': {
+                        'sfdc_cms:media': {
+                            'source': {'type': 'url', 'url': original_url}
+                        }
+                    }
+                })
+
+            if img_resp.ok if hasattr(img_resp, 'ok') else (img_resp.status_code in (200, 201)):
+                resp_data = img_resp.json()
+                managed_id = resp_data.get('managedContentId', resp_data.get('id', ''))
+                content_key = resp_data.get('contentKey', resp_data.get('contentUrlName', ''))
+                content_ids.append(managed_id)
+                # Build CMS media URL for this image
+                cms_url = ''
+                if content_key:
+                    cms_url = f'{instance}/cms/media/{content_key}'
+                image_map[original_url] = {
+                    'contentKey': content_key,
+                    'managedContentId': managed_id,
+                    'cmsUrl': cms_url,
+                    'type': img.get('type', 'image'),
+                    'wasSvg': is_svg
+                }
+            else:
+                err_text = img_resp.text[:200] if hasattr(img_resp, 'text') else str(img_resp)[:200]
+                errors.append(f'Image upload failed ({img.get("alt", "unknown")}): {err_text}')
         except Exception as e:
             errors.append(f'Image error: {str(e)[:100]}')
 
@@ -1550,6 +1676,7 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
         'contentIds': content_ids,
         'totalCreated': len(content_ids),
         'errors': errors,
+        'imageMap': image_map,
         'version': _APP_VERSION
     }
 
@@ -2602,6 +2729,8 @@ def _deploy_email_series_internal(token, instance, data):
     create_campaign = data.get('createCampaign', True)
     header_color = data.get('headerColor', None)
     brand_content_key = data.get('brandContentKey', '')
+    # imageMap from brand deploy: {original_url: {contentKey, managedContentId, cmsUrl, type, wasSvg}}
+    image_map = data.get('imageMap', {})
 
     if series_key not in EMAIL_SERIES:
         return {'success': False, 'errors': [f'Invalid series: {series_key}'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
@@ -2635,6 +2764,22 @@ def _deploy_email_series_internal(token, instance, data):
         copy_data = email_data.get('copy', {})
         logo_url = email_data.get('logoUrl', '')
         hero_url = email_data.get('heroUrl', '')
+
+        # Resolve image URLs to CMS media URLs when available (Fix: use CMS URLs in email HTML)
+        if logo_url and logo_url in image_map:
+            cms_logo = image_map[logo_url].get('cmsUrl', '')
+            if cms_logo:
+                logo_url = cms_logo
+            elif image_map[logo_url].get('wasSvg'):
+                # SVG logo with no CMS URL — don't embed SVG in email (incompatible)
+                logo_url = ''
+        elif logo_url and _is_svg_url(logo_url):
+            # SVG logo not in image_map — skip it in email (SVGs don't render in email clients)
+            logo_url = ''
+        if hero_url and hero_url in image_map:
+            cms_hero = image_map[hero_url].get('cmsUrl', '')
+            if cms_hero:
+                hero_url = cms_hero
 
         email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
 
@@ -2744,7 +2889,6 @@ def _deploy_email_series_internal(token, instance, data):
     if create_campaign and len(created_emails) > 0:
         series = EMAIL_SERIES[series_key]
         campaign_name = f"{brand_name} {series['name']}"
-        today_str = datetime.now().strftime('%Y-%m-%d')
 
         try:
             # Look up BusinessUnit in the 'default' Data Space (must match flow's <dataSpace>default</dataSpace>)
@@ -2762,7 +2906,6 @@ def _deploy_email_series_internal(token, instance, data):
                         ds_id = ds_recs[0]['Id']
 
                 if ds_id:
-                    # Find the BusinessUnit in the default Data Space
                     bu_resp = sf_api('GET',
                         '/services/data/v67.0/query/?q=' + quote(
                             f"SELECT Id FROM BusinessUnit WHERE DataSpaceId = '{ds_id}' LIMIT 1"),
@@ -2772,7 +2915,6 @@ def _deploy_email_series_internal(token, instance, data):
                         if bu_recs:
                             bu_id = bu_recs[0]['Id']
                 else:
-                    # Fallback: no DataSpace sObject or no 'default' found — try DeveloperName match
                     bu_resp = sf_api('GET',
                         '/services/data/v67.0/query/?q=' + quote(
                             "SELECT Id FROM BusinessUnit WHERE DeveloperName = 'defaultBusinessUnit' LIMIT 1"),
@@ -2781,8 +2923,9 @@ def _deploy_email_series_internal(token, instance, data):
                         bu_recs = bu_resp.json().get('records', [])
                         if bu_recs:
                             bu_id = bu_recs[0]['Id']
-            except Exception:
-                pass
+            except Exception as bu_ex:
+                # Log BU lookup failure but continue — campaign can be created without BU
+                errors.append(f"BusinessUnit lookup failed (non-blocking): {str(bu_ex)[:100]}")
 
             # Build all Campaign + Brief + BriefPlanSteps in ONE Composite API call
             identity = config.get('identity', '')
@@ -2842,10 +2985,20 @@ def _deploy_email_series_internal(token, instance, data):
                     'referenceId': f'step{step_idx}', 'body': step_body
                 })
 
-            comp_resp = sf_api('POST', '/services/data/v67.0/composite',
-                               token, instance, body={'compositeRequest': subrequests})
+            # Attempt composite call with retry
+            comp_resp = None
+            for comp_attempt in range(2):
+                if comp_attempt > 0:
+                    time.sleep(2)
+                comp_resp = sf_api('POST', '/services/data/v67.0/composite',
+                                   token, instance, body={'compositeRequest': subrequests})
+                if comp_resp.status_code in (200, 201):
+                    break
+                # On 401, sf_api auto-refreshes, so retry immediately
+                if comp_resp.status_code == 401:
+                    continue
 
-            if comp_resp.status_code in (200, 201):
+            if comp_resp and comp_resp.status_code in (200, 201):
                 comp_results = comp_resp.json().get('compositeResponse', [])
                 camp_sub = next((r for r in comp_results if r.get('referenceId') == 'newCampaign'), None)
                 brief_sub = next((r for r in comp_results if r.get('referenceId') == 'newBrief'), None)
@@ -2860,12 +3013,44 @@ def _deploy_email_series_internal(token, instance, data):
                         campaign_result['briefId'] = brief_sub['body'].get('id', '')
                         campaign_result['briefName'] = brief_name
                     else:
-                        errors.append(f"Brief: {brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'}")
+                        brief_err = brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'
+                        errors.append(f"Brief creation failed (campaign still created): {str(brief_err)[:200]}")
                 else:
+                    # Composite campaign sub-request failed — try direct Campaign POST as fallback
                     camp_err = camp_sub.get('body', 'Unknown') if camp_sub else 'No response'
-                    errors.append(f"Campaign: {str(camp_err)[:200]}")
+                    errors.append(f"Campaign composite failed: {str(camp_err)[:200]} — trying direct create")
+                    try:
+                        direct_resp = sf_api('POST', '/services/data/v67.0/sobjects/Campaign',
+                                             token, instance, body=camp_body)
+                        if direct_resp.ok:
+                            direct_data = direct_resp.json()
+                            campaign_result = {
+                                'id': direct_data.get('id', ''),
+                                'name': campaign_name,
+                                'status': 'Created (without brief)'
+                            }
+                        else:
+                            errors.append(f"Campaign direct create also failed: {direct_resp.status_code} - {direct_resp.text[:200]}")
+                    except Exception as de:
+                        errors.append(f"Campaign direct fallback error: {str(de)[:150]}")
             else:
-                errors.append(f"Campaign+Brief: {comp_resp.status_code} - {comp_resp.text[:200]}")
+                # Composite API call failed entirely — try direct Campaign POST as fallback
+                comp_err = f"{comp_resp.status_code} - {comp_resp.text[:200]}" if comp_resp else 'No response'
+                errors.append(f"Campaign+Brief composite failed: {comp_err} — trying direct create")
+                try:
+                    direct_resp = sf_api('POST', '/services/data/v67.0/sobjects/Campaign',
+                                         token, instance, body=camp_body)
+                    if direct_resp.ok:
+                        direct_data = direct_resp.json()
+                        campaign_result = {
+                            'id': direct_data.get('id', ''),
+                            'name': campaign_name,
+                            'status': 'Created (without brief)'
+                        }
+                    else:
+                        errors.append(f"Campaign direct create also failed: {direct_resp.status_code} - {direct_resp.text[:200]}")
+                except Exception as de:
+                    errors.append(f"Campaign direct fallback error: {str(de)[:150]}")
         except Exception as ce:
             errors.append(f"Campaign: {str(ce)[:150]}")
 
