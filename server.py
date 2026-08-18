@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.4.1'  # 2.4.1 = SVG preview thumbnails in brand preview UI
+_APP_VERSION = '2.4.2'  # 2.4.2 = Solar Lending sub-industry with dedicated email copy
 
 import os
 import re
@@ -357,6 +357,13 @@ INDUSTRY_TONES = {
         'identity_template': '{name} is a lending institution dedicated to making homeownership and financial goals achievable. They communicate with a guiding, encouraging voice that simplifies complex lending processes and celebrates customer milestones.',
         'customer_term': 'borrowers'
     },
+    'lending_solar': {
+        'label': 'Solar Lending',
+        'industry': 'Lending',
+        'description': 'Empowering, sustainability-focused language that connects financial savings with environmental impact. Guides homeowners through solar financing with optimism about energy independence and long-term value.',
+        'identity_template': '{name} is a clean energy lending platform making solar and sustainable home improvements accessible and affordable. They communicate with an empowering, forward-looking voice that connects financial benefits with positive environmental impact, helping homeowners take control of their energy future.',
+        'customer_term': 'homeowners'
+    },
     'payments': {
         'label': 'Payments & Fintech',
         'industry': 'Payments',
@@ -433,6 +440,9 @@ def analyze_tone(soup, industry_key=None):
                                 'compare quotes', 'coverage options', 'shop insurance'],
         'lending_mortgage': ['mortgage', 'home loan', 'refinance', 'preapproval', 'loan officer',
                              'closing costs', 'interest rate', 'home equity', 'fha', 'va loan'],
+        'lending_solar': ['solar', 'solar panel', 'solar loan', 'solar financing', 'clean energy',
+                          'renewable', 'energy savings', 'sustainable', 'solar installation', 'energy independence',
+                          'home improvement loan', 'green energy', 'net metering', 'solar power', 'goodleap'],
         'payments': ['payments', 'fintech', 'transaction', 'checkout', 'payment processing',
                      'digital wallet', 'contactless', 'point of sale', 'merchant', 'real-time payments']
     }
@@ -2003,6 +2013,58 @@ def _welcome_copy_lending(bn, ct):
         },
     ]
 
+def _nurture_copy_solar(bn, ct):
+    """Solar lending nurture copy."""
+    return [
+        {
+            'subject': f'Power Your Home with the Sun — {bn}',
+            'preheader': f'See how {ct} are saving with solar.',
+            'heading': f'Your Brighter Energy Future Starts Here',
+            'body': f'Going solar isn\'t just good for the planet — it\'s great for your wallet. {bn} makes solar financing simple, affordable, and accessible, so {ct} can start saving from day one while making a real environmental impact.',
+            'cta_text': 'See Your Savings',
+        },
+        {
+            'subject': f'How {ct.title()} Are Cutting Energy Costs with {bn}',
+            'preheader': f'Real results from {ct} who made the switch.',
+            'heading': f'{ct.title()} Love the Switch to Solar',
+            'body': f'{ct.title()} across the country are reducing their energy bills by 40-70%% with solar. {bn} offers flexible financing options with competitive rates, so you can start benefiting immediately — no huge upfront cost required.',
+            'cta_text': 'See Their Stories',
+        },
+        {
+            'subject': f'Ready to Go Solar? {bn} Makes It Easy',
+            'preheader': 'Get approved in minutes with flexible terms.',
+            'heading': 'Take Control of Your Energy',
+            'body': f'Energy costs keep rising, but you don\'t have to keep paying more. With {bn}, getting approved for solar financing is fast and straightforward. Take the first step toward energy independence today.',
+            'cta_text': 'Check Your Options',
+        },
+    ]
+
+def _welcome_copy_solar(bn, ct):
+    """Solar lending welcome copy."""
+    return [
+        {
+            'subject': f'Welcome to {bn} — Your Solar Journey Begins!',
+            'preheader': f'You\'re on the path to energy independence.',
+            'heading': f'Welcome to a Brighter Future!',
+            'body': f'Thank you for choosing {bn} to power your solar journey. You\'ve just taken a meaningful step toward lower energy costs, a smaller carbon footprint, and true energy independence. We\'re excited to be part of it.',
+            'cta_text': 'View Your Plan',
+        },
+        {
+            'subject': f'Track Your Solar Project with {bn}',
+            'preheader': 'Your dashboard is ready — monitor every step.',
+            'heading': f'Your Solar Dashboard Is Live',
+            'body': f'Log into your {bn} account to track your solar project timeline, view your financing details, and monitor your expected energy savings. Everything you need is in one place.',
+            'cta_text': 'Log In Now',
+        },
+        {
+            'subject': f'Maximize Your Solar Investment with {bn}',
+            'preheader': 'Tips to get the most from your system.',
+            'heading': 'Get the Most from Your Solar',
+            'body': f'{bn} is here beyond the installation. Explore resources on tax incentives, energy monitoring, battery storage options, and referral programs that can help {ct} maximize their solar investment.',
+            'cta_text': 'Explore Resources',
+        },
+    ]
+
 def _nurture_copy_payments(bn, ct):
     """Payments & fintech nurture copy."""
     return [
@@ -2065,6 +2127,11 @@ INDUSTRY_COPY_MAP = {
     'Payments':                 (_nurture_copy_payments,  _welcome_copy_payments),
 }
 
+# Sub-industry overrides: specific tone_key -> copy generators (takes priority over industry group)
+SUBINDUSTRY_COPY_MAP = {
+    'lending_solar':            (_nurture_copy_solar,     _welcome_copy_solar),
+}
+
 
 def generate_series_copy(series_key, config):
     """Generate all email copy for a series, based on industry tone."""
@@ -2074,8 +2141,10 @@ def generate_series_copy(series_key, config):
     customer_term = tone['customer_term']
     industry_group = tone['industry']
 
-    nurture_fn, welcome_fn = INDUSTRY_COPY_MAP.get(
-        industry_group, (_nurture_copy_general, _welcome_copy_general)
+    # Check sub-industry override first, then fall back to industry group
+    nurture_fn, welcome_fn = SUBINDUSTRY_COPY_MAP.get(
+        tone_key,
+        INDUSTRY_COPY_MAP.get(industry_group, (_nurture_copy_general, _welcome_copy_general))
     )
 
     if series_key == 'nurture':
