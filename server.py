@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.2'  # 2.9.2 = Convert SVG/WebP to PNG before CMS upload (email compatibility)
+_APP_VERSION = '2.9.3'  # 2.9.3 = Detect actual image format from content (not URL), convert SVG/WebP→PNG
 
 import os
 import re
@@ -1816,45 +1816,74 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
             img_resp = None
             upload_method = 'none'
 
-            # ── Strategy: binary upload FIRST (stores actual bytes in CMS) ──
-            # Binary uploads work on standard CMS spaces — the image data lives
-            # in Salesforce so previews always work, no external dependency.
-            # Enhanced CMS spaces reject binary uploads (400), so we fall back
-            # to URL reference with the original public URL.
+            # ── Strategy: download image, detect ACTUAL format, convert if needed ──
+            # URLs can lie about format (e.g. .svg URL returning WebP).
+            # Always check the actual Content-Type / magic bytes.
+            # Convert SVG and WebP to PNG (neither works in email clients).
+            # Then do binary upload (stores actual bytes in CMS).
             img_bytes = None
-            img_mime = 'image/png' if is_svg else 'image/jpeg'
-            img_ext = 'png' if is_svg else 'jpg'
+            img_mime = 'image/png'
+            img_ext = 'png'
 
-            if is_svg:
-                png_bytes, svg_err = _svg_to_png_bytes(original_url)
-                if png_bytes:
-                    img_bytes = png_bytes
-            else:
-                try:
-                    dl_resp = requests.get(original_url, timeout=10, headers={
-                        'User-Agent': 'Mozilla/5.0',
-                        'Accept': 'image/*',
-                        'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
-                    })
-                    if dl_resp.ok and len(dl_resp.content) > 100:
-                        ct = dl_resp.headers.get('Content-Type', '').lower()
-                        if 'png' in ct:
-                            img_mime, img_ext = 'image/png', 'png'
-                        elif 'gif' in ct:
-                            img_mime, img_ext = 'image/gif', 'gif'
-                        elif 'webp' in ct:
-                            # Convert WebP → PNG (WebP doesn't work in emails)
-                            png_bytes, webp_err = _webp_to_png_bytes(dl_resp.content)
-                            if png_bytes:
+            try:
+                dl_resp = requests.get(original_url, timeout=10, headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Accept': 'image/*',
+                    'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
+                })
+                if dl_resp.ok and len(dl_resp.content) > 100:
+                    raw_bytes = dl_resp.content
+                    ct = dl_resp.headers.get('Content-Type', '').lower()
+
+                    # Detect actual format from content + headers
+                    is_actually_svg = (b'<svg' in raw_bytes[:500].lower())
+                    is_actually_webp = raw_bytes[:4] == b'RIFF' and b'WEBP' in raw_bytes[:12]
+                    is_actually_png = raw_bytes[:4] == b'\x89PNG'
+                    is_actually_gif = raw_bytes[:4] == b'GIF8'
+                    is_actually_jpg = raw_bytes[:2] == b'\xff\xd8'
+
+                    if is_actually_svg:
+                        # Real SVG content — convert to PNG
+                        try:
+                            if HAS_CAIROSVG:
+                                png_data = cairosvg.svg2png(bytestring=raw_bytes, output_width=600)
+                                img_bytes = png_data
                                 img_mime, img_ext = 'image/png', 'png'
-                                img_bytes = png_bytes
-                            else:
-                                img_mime, img_ext = 'image/webp', 'webp'
-                                img_bytes = dl_resp.content
-                        if img_bytes is None:
-                            img_bytes = dl_resp.content
-                except Exception:
-                    pass
+                        except Exception:
+                            pass
+                        if not img_bytes:
+                            # cairosvg failed — try Pillow as fallback
+                            try:
+                                from PIL import Image
+                                # Pillow can't render SVG, but can handle if it's simple
+                                pass  # Will fall through to URL ref
+                            except Exception:
+                                pass
+                    elif is_actually_webp or 'webp' in ct:
+                        # WebP — convert to PNG (not supported in emails)
+                        png_data, webp_err = _webp_to_png_bytes(raw_bytes)
+                        if png_data:
+                            img_bytes = png_data
+                            img_mime, img_ext = 'image/png', 'png'
+                        else:
+                            # Conversion failed — upload as-is
+                            img_bytes = raw_bytes
+                            img_mime, img_ext = 'image/webp', 'webp'
+                    elif is_actually_png or 'png' in ct:
+                        img_bytes = raw_bytes
+                        img_mime, img_ext = 'image/png', 'png'
+                    elif is_actually_gif or 'gif' in ct:
+                        img_bytes = raw_bytes
+                        img_mime, img_ext = 'image/gif', 'gif'
+                    elif is_actually_jpg or 'jpeg' in ct or 'jpg' in ct:
+                        img_bytes = raw_bytes
+                        img_mime, img_ext = 'image/jpeg', 'jpg'
+                    else:
+                        # Unknown format — upload as-is, assume JPEG
+                        img_bytes = raw_bytes
+                        img_mime, img_ext = 'image/jpeg', 'jpg'
+            except Exception:
+                pass
 
             if img_bytes:
                 img_resp = _binary_upload(img_bytes, img_mime, img_ext)
