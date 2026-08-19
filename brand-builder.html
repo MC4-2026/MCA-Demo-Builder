@@ -2585,5 +2585,10 @@ if (new URLSearchParams(window.location.search).get('connected') === '1') {
 }
 </script>
 
+<div id="app-version" style="text-align:center;padding:12px 0 8px;color:#94a3b8;font-size:11px;letter-spacing:0.5px;">Loading version...</div>
+<script>
+fetch('/api/version').then(r=>r.json()).then(d=>{document.getElementById('app-version').textContent='v'+d.version;}).catch(()=>{document.getElementById('app-version').textContent='';});
+</script>
+
 </body>
 </html>
