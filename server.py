@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.5.3'  # 2.5.3 = Upload images as binary files to CMS (fixes broken images in email editor)
+_APP_VERSION = '2.6.0'  # 2.6.0 = Fix email images: use app proxy URLs so images render in editor + sent emails
 
 import os
 import re
@@ -1043,11 +1043,15 @@ def api_version():
 
 @app.route('/api/img-proxy')
 def img_proxy():
-    """Proxy an external image to avoid CORS issues in browser previews.
+    """Proxy an external image to avoid CORS issues in browser previews and deployed emails.
 
     Usage: /api/img-proxy?url=https://example.com/logo.svg
-    Streams the image through the server so the browser can render it
-    even when the origin doesn't set CORS headers (common with SVGs).
+    Streams the image through the server so browsers can render it
+    even when the origin doesn't set CORS headers (common with SVGs and
+    Next.js _next/image endpoints that check Referer).
+
+    Also used as the permanent image URL in deployed CMS emails — the email
+    editor and sent emails both load images through this proxy.
     """
     from flask import Response
     target_url = request.args.get('url', '')
@@ -1072,11 +1076,25 @@ def img_proxy():
         # Only proxy image content types (including SVG)
         if not (content_type.startswith('image/') or 'svg' in content_type):
             return jsonify({'error': 'Not an image'}), 400
+
+        img_data = resp.content
+        out_type = content_type
+
+        # Convert SVG to PNG for email compatibility (email clients can't render SVG)
+        if 'svg' in content_type:
+            try:
+                png_bytes, _err = _svg_to_png_bytes(target_url)
+                if png_bytes:
+                    img_data = png_bytes
+                    out_type = 'image/png'
+            except Exception:
+                pass  # Serve original SVG if conversion fails
+
         return Response(
-            resp.content,
-            content_type=content_type,
+            img_data,
+            content_type=out_type,
             headers={
-                'Cache-Control': 'public, max-age=3600',
+                'Cache-Control': 'public, max-age=86400',  # 24h cache for deployed emails
                 'Access-Control-Allow-Origin': '*'
             }
         )
@@ -2341,13 +2359,17 @@ def generate_series_copy(series_key, config):
     return results
 
 
-def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=None, preview=False):
+def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=None, preview=False, proxy_base_url=''):
     """Render a single email to full HTML, given copy fields + brand config + images.
 
     When preview=True, image URLs are proxied through /api/img-proxy so they
     render in the browser preview modal (avoids cross-origin failures for SVGs
-    and Next.js images). For deployment, preview should be False so the
-    original/CMS URLs are used.
+    and Next.js images).
+
+    When proxy_base_url is set (deployment mode), image URLs are proxied through
+    the app's public img-proxy endpoint so images render in the Salesforce email
+    editor and in sent emails (external CDN URLs often fail due to CSP / hotlink
+    restrictions in the email editor context).
     """
     colors = config.get('colors', [])
     primary = header_color or (colors[0]['hex'] if len(colors) > 0 else '#0176d3')
@@ -2370,9 +2392,16 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
     cta_url = copy_data.get('cta_url', '#')
 
     def _img_src(url):
-        """Return proxied URL for previews, original URL for deployment."""
-        if preview and url:
+        """Return proxied URL for previews/deployment, original URL otherwise."""
+        if not url:
+            return url
+        if preview:
             return f'/api/img-proxy?url={quote(url, safe="")}'
+        if proxy_base_url:
+            # Use the app's public proxy for deployed emails — ensures images
+            # render in the Salesforce email editor and in sent emails
+            base = proxy_base_url.rstrip('/')
+            return f'{base}/api/img-proxy?url={quote(url, safe="")}'
         return url
 
     logo_section = ''
@@ -2965,9 +2994,11 @@ def _soap_deploy_flow(flow_xml, flow_api_name, token, instance, poll_timeout=45)
     }
 
 
-def _deploy_email_series_internal(token, instance, data):
+def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
     """Core email series deploy logic: uploads emails to CMS, publishes, creates flow + campaign.
-    Returns dict with emails, flow, campaign, errors, success, totalCreated."""
+    Returns dict with emails, flow, campaign, errors, success, totalCreated.
+    proxy_base_url: the app's public URL (e.g. https://mca-brand-builder.herokuapp.com)
+    used to proxy images so they render in the email editor + sent emails."""
     series_key = data.get('series', '')
     emails = data.get('emails', [])
     config = data.get('config', {})
@@ -3017,23 +3048,30 @@ def _deploy_email_series_internal(token, instance, data):
         logo_url = email_data.get('logoUrl', '')
         hero_url = email_data.get('heroUrl', '')
 
-        # Resolve image URLs to CMS media URLs when available (Fix: use CMS URLs in email HTML)
-        if logo_url and logo_url in image_map:
-            cms_logo = image_map[logo_url].get('cmsUrl', '')
-            if cms_logo:
-                logo_url = cms_logo
-            elif image_map[logo_url].get('wasSvg'):
-                # SVG logo with no CMS URL — don't embed SVG in email (incompatible)
+        # Image URL strategy:
+        # If we have a proxy_base_url, all images go through our app's img-proxy.
+        # This solves: CDN hotlink/CSP blocks, SVG rendering, WebP conversion, etc.
+        # The proxy serves images publicly over HTTPS so they work in both
+        # the Salesforce email editor AND in sent emails.
+        #
+        # If no proxy_base_url, try CMS URLs as fallback, then original URLs.
+        if not proxy_base_url:
+            # Legacy fallback: try CMS media URLs
+            if logo_url and logo_url in image_map:
+                cms_logo = image_map[logo_url].get('cmsUrl', '')
+                if cms_logo:
+                    logo_url = cms_logo
+                elif image_map[logo_url].get('wasSvg'):
+                    logo_url = ''
+            elif logo_url and _is_svg_url(logo_url):
                 logo_url = ''
-        elif logo_url and _is_svg_url(logo_url):
-            # SVG logo not in image_map — skip it in email (SVGs don't render in email clients)
-            logo_url = ''
-        if hero_url and hero_url in image_map:
-            cms_hero = image_map[hero_url].get('cmsUrl', '')
-            if cms_hero:
-                hero_url = cms_hero
+            if hero_url and hero_url in image_map:
+                cms_hero = image_map[hero_url].get('cmsUrl', '')
+                if cms_hero:
+                    hero_url = cms_hero
+        # When proxy_base_url is set, render_email_html handles proxying all URLs
 
-        email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color)
+        email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color, proxy_base_url=proxy_base_url)
 
         email_name = f"{brand_name}_{series['name'].replace(' ', '_')}_Email_{i + 1}"
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
@@ -3410,7 +3448,9 @@ def deploy_email_series():
     if not data.get('emails'):
         return jsonify({'error': 'No emails provided'}), 400
 
-    result = _deploy_email_series_internal(token, instance, data)
+    # Build the app's public URL for proxying images in email HTML
+    proxy_base = request.host_url.rstrip('/')
+    result = _deploy_email_series_internal(token, instance, data, proxy_base_url=proxy_base)
     return jsonify(result)
 
 
@@ -3503,6 +3543,7 @@ def deploy_all():
     email_series_list = data.get('emailSeries', [])  # list of series keys: ['nurture', 'welcome']
     email_config = data.get('emailConfig', {})
     email_data = data.get('emailData', {})  # { nurture: [{copy, logoUrl, heroUrl},...], welcome: [...] }
+    proxy_base = request.host_url.rstrip('/')
 
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
@@ -3562,7 +3603,7 @@ def deploy_all():
             'dmoObject': org_dmo
         }
 
-        series_result = _deploy_email_series_internal(token, instance, series_data)
+        series_result = _deploy_email_series_internal(token, instance, series_data, proxy_base_url=proxy_base)
         results['emailSeries'][series_key] = series_result
         if series_result.get('errors'):
             results['errors'].extend(series_result['errors'])
