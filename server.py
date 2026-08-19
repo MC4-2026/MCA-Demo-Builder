@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.8.1'  # 2.8.1 = Use CMS-hosted image URLs in emails (not proxy); proxy only as fallback
+_APP_VERSION = '2.9.0'  # 2.9.0 = Fix CMS image upload: binary with contentData field, URL ref uses original public URL (not proxy)
 
 import os
 import re
@@ -1731,7 +1731,7 @@ def create_workspace():
     })
 
 
-def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=''):
+def _deploy_brand_internal(token, instance, config, workspace_id):
     """Core brand deploy logic: uploads images + creates brand + publishes.
     Returns dict with brandId, contentIds, totalCreated, errors, success,
     and imageMap: {original_url: {contentKey, managedContentId, cmsUrl, type}}."""
@@ -1753,18 +1753,9 @@ def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url
         try:
             is_svg = _is_svg_url(original_url)
 
-            # Build the publicly-accessible proxy URL for this image.
-            # Salesforce CMS URL-reference uploads fetch the URL — so it must be reachable
-            # from Salesforce servers.  Our /api/img-proxy serves any image publicly over
-            # HTTPS and also converts SVG→PNG automatically.
-            proxy_url = original_url  # default: use original
-            if proxy_base_url:
-                proxy_url = f'{proxy_base_url.rstrip("/")}/api/img-proxy?url={quote(original_url, safe="")}'
-
-            # ── Strategy: URL reference first (simplest, works on all CMS types) ──
-            # Enhanced CMS spaces reject multipart binary uploads (400 INVALID_API_INPUT).
-            # URL reference uploads work on both standard and enhanced spaces.
-            # Use the proxy URL so Salesforce can always reach the image.
+            # ── URL reference upload (works on all CMS space types) ──
+            # Always uses the ORIGINAL public image URL so previews work
+            # without depending on the proxy being reachable.
             def _url_ref_upload(ref_url):
                 return sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
                     'contentSpaceOrFolderId': workspace_id,
@@ -1777,28 +1768,21 @@ def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url
                     }
                 })
 
-            # ── Strategy: binary upload (only works on non-enhanced CMS spaces) ──
+            # ── Binary upload (stores actual image bytes in CMS) ──
+            # Uses 'contentData' as the multipart field name per Salesforce docs.
+            # Only works on non-enhanced CMS spaces.
             def _binary_upload(data_bytes, mime, ext):
                 inp = json.dumps({
                     'contentSpaceOrFolderId': workspace_id,
                     'contentType': 'sfdc_cms__image',
-                    'title': img_title,
-                    'contentBody': {
-                        'sfdc_cms:media': {
-                            'source': {
-                                'type': 'file',
-                                'mimeType': mime,
-                                'fileName': img_title + '.' + ext
-                            }
-                        }
-                    }
+                    'title': img_title
                 })
                 return requests.post(
                     f"{instance}/services/data/v62.0/connect/cms/contents",
                     headers={'Authorization': f'Bearer {token}'},
                     files={
                         'ManagedContentInputParam': (None, inp, 'application/json'),
-                        'sfdc_cms:media': (img_title + '.' + ext, data_bytes, mime)
+                        'contentData': (img_title + '.' + ext, data_bytes, mime)
                     },
                     timeout=15
                 )
@@ -1809,10 +1793,11 @@ def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url
             img_resp = None
             upload_method = 'none'
 
-            # ── Strategy: binary upload FIRST (works when app is behind firewall) ──
-            # Binary uploads work on standard CMS spaces and don't require
-            # Salesforce to reach our app.  Only enhanced CMS spaces reject them.
-            # If binary fails, fall back to URL reference uploads.
+            # ── Strategy: binary upload FIRST (stores actual bytes in CMS) ──
+            # Binary uploads work on standard CMS spaces — the image data lives
+            # in Salesforce so previews always work, no external dependency.
+            # Enhanced CMS spaces reject binary uploads (400), so we fall back
+            # to URL reference with the original public URL.
             img_bytes = None
             img_mime = 'image/png' if is_svg else 'image/jpeg'
             img_ext = 'png' if is_svg else 'jpg'
@@ -1845,25 +1830,19 @@ def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url
                 upload_method = 'binary'
 
             # If binary upload failed (e.g. enhanced CMS), fall back to URL reference
+            # ALWAYS use original public URL — never proxy URL — so CMS previews work
             if img_resp is None or not _resp_ok(img_resp):
                 err_binary = ''
                 if img_resp is not None:
                     err_binary = img_resp.text[:100] if hasattr(img_resp, 'text') else str(img_resp)[:100]
 
-                # Try URL reference with proxy URL (publicly accessible)
-                if proxy_url != original_url:
-                    img_resp = _url_ref_upload(proxy_url)
-                    upload_method = 'url_ref_proxy'
+                img_resp = _url_ref_upload(original_url)
+                upload_method = 'url_ref'
 
-                if img_resp is None or not _resp_ok(img_resp):
-                    # Try URL reference with original URL directly
-                    img_resp = _url_ref_upload(original_url)
-                    upload_method = 'url_ref_original'
-
-                    if not _resp_ok(img_resp):
-                        err_ref = img_resp.text[:100] if hasattr(img_resp, 'text') else str(img_resp)[:100]
-                        errors.append(f'Image upload failed ({img.get("alt", "?")}): binary={err_binary[:60]}, ref={err_ref[:60]}')
-                        continue
+                if not _resp_ok(img_resp):
+                    err_ref = img_resp.text[:100] if hasattr(img_resp, 'text') else str(img_resp)[:100]
+                    errors.append(f'Image upload failed ({img.get("alt", "?")}): binary={err_binary[:60]}, ref={err_ref[:60]}')
+                    continue
 
             if _resp_ok(img_resp):
                 resp_data = img_resp.json()
@@ -1946,8 +1925,7 @@ def deploy_brand():
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
 
-    proxy_base = _public_base_url()
-    result = _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=proxy_base)
+    result = _deploy_brand_internal(token, instance, config, workspace_id)
     if not result.get('success'):
         return jsonify({'error': result['errors'][-1] if result['errors'] else 'Deploy failed', 'imageErrors': result['errors']}), 500
     return jsonify(result)
@@ -3637,7 +3615,7 @@ def deploy_all():
     }
 
     # Step 1: Deploy brand + images
-    brand_result = _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=proxy_base)
+    brand_result = _deploy_brand_internal(token, instance, config, workspace_id)
     results['brand'] = brand_result
     if brand_result.get('errors'):
         results['errors'].extend(brand_result['errors'])
