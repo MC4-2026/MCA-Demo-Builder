@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.0'  # 2.9.0 = Fix CMS image upload: binary with contentData field, URL ref uses original public URL (not proxy)
+_APP_VERSION = '2.9.1'  # 2.9.1 = Fix binary upload: include contentBody with source metadata in multipart JSON
 
 import os
 import re
@@ -1772,17 +1772,27 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
             # Uses 'contentData' as the multipart field name per Salesforce docs.
             # Only works on non-enhanced CMS spaces.
             def _binary_upload(data_bytes, mime, ext):
+                fname = img_title + '.' + ext
                 inp = json.dumps({
                     'contentSpaceOrFolderId': workspace_id,
                     'contentType': 'sfdc_cms__image',
-                    'title': img_title
+                    'title': img_title,
+                    'contentBody': {
+                        'sfdc_cms:media': {
+                            'source': {
+                                'type': 'file',
+                                'mimeType': mime,
+                                'fileName': fname
+                            }
+                        }
+                    }
                 })
                 return requests.post(
                     f"{instance}/services/data/v62.0/connect/cms/contents",
                     headers={'Authorization': f'Bearer {token}'},
                     files={
                         'ManagedContentInputParam': (None, inp, 'application/json'),
-                        'contentData': (img_title + '.' + ext, data_bytes, mime)
+                        'contentData': (fname, data_bytes, mime)
                     },
                     timeout=15
                 )
