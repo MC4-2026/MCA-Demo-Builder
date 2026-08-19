@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.5.2'  # 2.5.2 = Campaign+Brief creation robust for all orgs (with/without BusinessUnit)
+_APP_VERSION = '2.5.3'  # 2.5.3 = Upload images as binary files to CMS (fixes broken images in email editor)
 
 import os
 import re
@@ -1731,17 +1731,69 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
                         }
                     })
             else:
-                # Non-SVG: upload as URL reference (existing behavior)
-                img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
-                    'contentSpaceOrFolderId': workspace_id,
-                    'contentType': 'sfdc_cms__image',
-                    'title': img_title,
-                    'contentBody': {
-                        'sfdc_cms:media': {
-                            'source': {'type': 'url', 'url': original_url}
+                # Non-SVG: download image and upload as binary file so CMS
+                # hosts the image data (URL references fail in the email editor
+                # when the original CDN blocks cross-origin / hotlink requests).
+                img_bytes = None
+                img_mime = 'image/jpeg'
+                img_ext = 'jpg'
+                try:
+                    dl_resp = requests.get(original_url, timeout=10, headers={
+                        'User-Agent': 'Mozilla/5.0',
+                        'Accept': 'image/*',
+                        'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
+                    })
+                    if dl_resp.ok and len(dl_resp.content) > 100:
+                        ct = dl_resp.headers.get('Content-Type', '').lower()
+                        if 'png' in ct:
+                            img_mime, img_ext = 'image/png', 'png'
+                        elif 'gif' in ct:
+                            img_mime, img_ext = 'image/gif', 'gif'
+                        elif 'webp' in ct:
+                            img_mime, img_ext = 'image/webp', 'webp'
+                        elif 'svg' in ct:
+                            img_mime, img_ext = 'image/svg+xml', 'svg'
+                        img_bytes = dl_resp.content
+                except Exception:
+                    pass
+
+                if img_bytes:
+                    input_param = json.dumps({
+                        'contentSpaceOrFolderId': workspace_id,
+                        'contentType': 'sfdc_cms__image',
+                        'title': img_title,
+                        'contentBody': {
+                            'sfdc_cms:media': {
+                                'source': {
+                                    'type': 'file',
+                                    'mimeType': img_mime,
+                                    'fileName': img_title + '.' + img_ext
+                                }
+                            }
                         }
+                    })
+                    files = {
+                        'ManagedContentInputParam': (None, input_param, 'application/json'),
+                        'sfdc_cms:media': (img_title + '.' + img_ext, img_bytes, img_mime)
                     }
-                })
+                    img_resp = requests.post(
+                        f"{instance}/services/data/v62.0/connect/cms/contents",
+                        headers={'Authorization': f'Bearer {token}'},
+                        files=files,
+                        timeout=15
+                    )
+                else:
+                    # Download failed — fall back to URL reference
+                    img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+                        'contentSpaceOrFolderId': workspace_id,
+                        'contentType': 'sfdc_cms__image',
+                        'title': img_title,
+                        'contentBody': {
+                            'sfdc_cms:media': {
+                                'source': {'type': 'url', 'url': original_url}
+                            }
+                        }
+                    })
 
             if img_resp.ok if hasattr(img_resp, 'ok') else (img_resp.status_code in (200, 201)):
                 resp_data = img_resp.json()
