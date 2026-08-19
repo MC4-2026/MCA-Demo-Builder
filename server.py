@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.7.0'  # 2.7.0 = Robust image uploads: proxy-URL fallback, detailed error capture, skip binary on enhanced CMS
+_APP_VERSION = '2.7.1'  # 2.7.1 = Fix proxy URLs: HTTPS + correct public hostname via ProxyFix (was http://internal-dyno-host)
 
 import os
 import re
@@ -27,6 +27,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, send_from_directory, redirect, session
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 try:
     import cairosvg
@@ -35,6 +36,9 @@ except ImportError:
     HAS_CAIROSVG = False
 
 app = Flask(__name__, static_folder='.')
+# ProxyFix: trust Heroku's X-Forwarded-Proto and X-Forwarded-Host headers
+# so request.host_url returns the public https:// URL instead of internal dyno hostname
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-prod')
 CORS(app)
 
@@ -42,6 +46,23 @@ CORS(app)
 SF_CLIENT_ID = os.environ.get('SF_CLIENT_ID', '')
 SF_CLIENT_SECRET = os.environ.get('SF_CLIENT_SECRET', '')
 SF_CALLBACK_URL = os.environ.get('SF_CALLBACK_URL', 'http://localhost:5111/oauth/callback')
+# Explicit public base URL override (optional — if set, always use this instead of request.host_url)
+APP_PUBLIC_URL = os.environ.get('APP_PUBLIC_URL', '')  # e.g. https://mca-brand-builder.herokuapp.com
+
+
+def _public_base_url():
+    """Return the public-facing base URL for this app (always HTTPS, no trailing slash).
+    Uses APP_PUBLIC_URL env var if set, otherwise derives from request.host_url
+    (which now respects X-Forwarded-* headers via ProxyFix)."""
+    if APP_PUBLIC_URL:
+        return APP_PUBLIC_URL.rstrip('/')
+    # request.host_url with ProxyFix should give the correct public URL
+    base = request.host_url.rstrip('/')
+    # Safety: force HTTPS if we're on Heroku (never serve image proxy URLs over HTTP)
+    if base.startswith('http://') and '.herokuapp.com' in base:
+        base = 'https://' + base[7:]
+    return base
+
 
 # In-memory job store for async analysis
 jobs = {}  # job_id -> {'status': 'pending'|'done'|'error', 'result': ..., 'error': ...}
@@ -1895,7 +1916,7 @@ def deploy_brand():
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
 
-    proxy_base = request.host_url.rstrip('/')
+    proxy_base = _public_base_url()
     result = _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=proxy_base)
     if not result.get('success'):
         return jsonify({'error': result['errors'][-1] if result['errors'] else 'Deploy failed', 'imageErrors': result['errors']}), 500
@@ -3451,7 +3472,7 @@ def deploy_email_series():
         return jsonify({'error': 'No emails provided'}), 400
 
     # Build the app's public URL for proxying images in email HTML
-    proxy_base = request.host_url.rstrip('/')
+    proxy_base = _public_base_url()
     result = _deploy_email_series_internal(token, instance, data, proxy_base_url=proxy_base)
     return jsonify(result)
 
@@ -3545,7 +3566,7 @@ def deploy_all():
     email_series_list = data.get('emailSeries', [])  # list of series keys: ['nurture', 'welcome']
     email_config = data.get('emailConfig', {})
     email_data = data.get('emailData', {})  # { nurture: [{copy, logoUrl, heroUrl},...], welcome: [...] }
-    proxy_base = request.host_url.rstrip('/')
+    proxy_base = _public_base_url()
 
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
