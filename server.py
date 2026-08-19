@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.5.1'  # 2.5.1 = Proxy all preview images through server (fixes cross-origin load failures)
+_APP_VERSION = '2.5.2'  # 2.5.2 = Campaign+Brief creation robust for all orgs (with/without BusinessUnit)
 
 import os
 import re
@@ -3144,69 +3144,83 @@ def _deploy_email_series_internal(token, instance, data):
                 'Name': campaign_name, 'Type': 'Email', 'Status': 'Planned',
                 'IsActive': True, 'Description': f"{brand_name} - {series['description']}"
             }
-            # BusinessUnitId is an MCA-specific Campaign field — only include it
-            # if the org confirms it exists (via describe), to avoid INVALID_FIELD.
-            # Orgs without this field still create functional campaigns but show
-            # the standard Campaign UI instead of the MCA Campaign Builder.
+            # Describe Campaign + Brief to discover which fields/objects exist.
+            # Runs unconditionally so the composite call is robust on ALL orgs
+            # (with or without BusinessUnit provisioned).
             include_bu_campaign = False
             include_bu_brief = False
-            if bu_id:
-                try:
-                    desc_resp = sf_api('GET', '/services/data/v67.0/sobjects/Campaign/describe',
-                                       token, instance, timeout=5)
-                    if desc_resp.ok:
-                        field_names = {f['name'] for f in desc_resp.json().get('fields', [])}
-                        include_bu_campaign = 'BusinessUnitId' in field_names
-                except Exception:
-                    pass
-                try:
-                    desc_resp2 = sf_api('GET', '/services/data/v67.0/sobjects/Brief/describe',
-                                        token, instance, timeout=5)
-                    if desc_resp2.ok:
-                        field_names2 = {f['name'] for f in desc_resp2.json().get('fields', [])}
-                        include_bu_brief = 'BusinessUnitId' in field_names2
-                except Exception:
-                    pass
-            if include_bu_campaign and bu_id:
+            brief_available = False
+            briefid_on_campaign = False
+            try:
+                desc_camp = sf_api('GET', '/services/data/v67.0/sobjects/Campaign/describe',
+                                    token, instance, timeout=5)
+                if desc_camp.ok:
+                    camp_flds = {f['name'] for f in desc_camp.json().get('fields', [])}
+                    briefid_on_campaign = 'BriefId' in camp_flds
+                    include_bu_campaign = 'BusinessUnitId' in camp_flds and bool(bu_id)
+            except Exception:
+                pass
+            try:
+                desc_brief = sf_api('GET', '/services/data/v67.0/sobjects/Brief/describe',
+                                     token, instance, timeout=5)
+                if desc_brief.ok:
+                    brief_available = True
+                    brief_flds = {f['name'] for f in desc_brief.json().get('fields', [])}
+                    include_bu_brief = 'BusinessUnitId' in brief_flds and bool(bu_id)
+            except Exception:
+                pass
+
+            if include_bu_campaign:
                 camp_body['BusinessUnitId'] = bu_id
 
-            brief_fields = {
-                'Name': brief_name,
-                'Description': identity or f"{brand_name} {series['name']} email campaign",
-                'KeyMessage': '\n'.join(subject_lines) if subject_lines else brand_name,
-                'TargetAudience': industry or 'General audience',
-                'PrimaryGoal': primary_goal,
-                'PrimaryCtas': '\n'.join(cta_texts) if cta_texts else '',
-                'PrimaryKpi': 'Open Rate, Click-Through Rate, Conversion Rate',
-            }
-            if brand_content_id:
-                brief_fields['BrandId'] = brand_content_id
-            if include_bu_brief and bu_id:
-                brief_fields['BusinessUnitId'] = bu_id
-
-            # Composite: Campaign -> Brief -> link Campaign.BriefId -> BriefPlanSteps
+            # Build composite subrequests conditionally based on org capabilities
             subrequests = [
                 {'method': 'POST', 'url': '/services/data/v67.0/sobjects/Campaign',
                  'referenceId': 'newCampaign', 'body': camp_body},
-                {'method': 'POST', 'url': '/services/data/v67.0/sobjects/Brief',
-                 'referenceId': 'newBrief', 'body': brief_fields},
-                {'method': 'PATCH', 'url': '/services/data/v67.0/sobjects/Campaign/@{newCampaign.id}',
-                 'referenceId': 'linkBrief', 'body': {'BriefId': '@{newBrief.id}'}}
             ]
-            for step_idx, em in enumerate(emails):
-                step_body = {
-                    'BriefId': '@{newBrief.id}',
-                    'StepNumber': step_idx + 1, 'StepType': 'Send',
-                    'Channel': 'Email',
-                    'Content': em.get('copy', {}).get('subject', f'Email {step_idx + 1}'),
+
+            if brief_available:
+                brief_fields = {
+                    'Name': brief_name,
+                    'Description': identity or f"{brand_name} {series['name']} email campaign",
+                    'KeyMessage': '\n'.join(subject_lines) if subject_lines else brand_name,
+                    'TargetAudience': industry or 'General audience',
+                    'PrimaryGoal': primary_goal,
+                    'PrimaryCtas': '\n'.join(cta_texts) if cta_texts else '',
+                    'PrimaryKpi': 'Open Rate, Click-Through Rate, Conversion Rate',
                 }
-                if step_idx > 0:
-                    step_body['WaitNumber'] = series.get('wait_days', 1)
-                    step_body['WaitUnit'] = 'Days'
-                subrequests.append({
-                    'method': 'POST', 'url': '/services/data/v67.0/sobjects/BriefPlanStep',
-                    'referenceId': f'step{step_idx}', 'body': step_body
-                })
+                if brand_content_id:
+                    brief_fields['BrandId'] = brand_content_id
+                if include_bu_brief:
+                    brief_fields['BusinessUnitId'] = bu_id
+
+                subrequests.append(
+                    {'method': 'POST', 'url': '/services/data/v67.0/sobjects/Brief',
+                     'referenceId': 'newBrief', 'body': brief_fields})
+
+                if briefid_on_campaign:
+                    subrequests.append(
+                        {'method': 'PATCH',
+                         'url': '/services/data/v67.0/sobjects/Campaign/@{newCampaign.id}',
+                         'referenceId': 'linkBrief',
+                         'body': {'BriefId': '@{newBrief.id}'}})
+
+                for step_idx, em in enumerate(emails):
+                    step_body = {
+                        'BriefId': '@{newBrief.id}',
+                        'StepNumber': step_idx + 1, 'StepType': 'Send',
+                        'Channel': 'Email',
+                        'Content': em.get('copy', {}).get('subject', f'Email {step_idx + 1}'),
+                    }
+                    if step_idx > 0:
+                        step_body['WaitNumber'] = series.get('wait_days', 1)
+                        step_body['WaitUnit'] = 'Days'
+                    subrequests.append({
+                        'method': 'POST', 'url': '/services/data/v67.0/sobjects/BriefPlanStep',
+                        'referenceId': f'step{step_idx}', 'body': step_body
+                    })
+            else:
+                errors.append("Brief object not available in this org — campaign created without brief")
 
             # Attempt composite call with retry
             comp_resp = None
@@ -3224,7 +3238,6 @@ def _deploy_email_series_internal(token, instance, data):
             if comp_resp and comp_resp.status_code in (200, 201):
                 comp_results = comp_resp.json().get('compositeResponse', [])
                 camp_sub = next((r for r in comp_results if r.get('referenceId') == 'newCampaign'), None)
-                brief_sub = next((r for r in comp_results if r.get('referenceId') == 'newBrief'), None)
 
                 if camp_sub and camp_sub.get('httpStatusCode') in (200, 201):
                     campaign_result = {
@@ -3232,15 +3245,14 @@ def _deploy_email_series_internal(token, instance, data):
                         'name': campaign_name,
                         'status': 'Created'
                     }
-                    if bu_id and not include_bu_campaign:
-                        campaign_result['note'] = ('Campaign created without Business Unit link — '
-                                                   'open it from the Marketing app to see the full MCA view.')
-                    if brief_sub and brief_sub.get('httpStatusCode') in (200, 201):
-                        campaign_result['briefId'] = brief_sub['body'].get('id', '')
-                        campaign_result['briefName'] = brief_name
-                    else:
-                        brief_err = brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'
-                        errors.append(f"Brief creation failed (campaign still created): {str(brief_err)[:200]}")
+                    if brief_available:
+                        brief_sub = next((r for r in comp_results if r.get('referenceId') == 'newBrief'), None)
+                        if brief_sub and brief_sub.get('httpStatusCode') in (200, 201):
+                            campaign_result['briefId'] = brief_sub['body'].get('id', '')
+                            campaign_result['briefName'] = brief_name
+                        else:
+                            brief_err = brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'
+                            errors.append(f"Brief creation failed (campaign still created): {str(brief_err)[:200]}")
                 else:
                     # Composite campaign sub-request failed — try direct Campaign POST as fallback
                     camp_err = camp_sub.get('body', 'Unknown') if camp_sub else 'No response'
