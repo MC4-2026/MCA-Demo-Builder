@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.3'  # 2.9.3 = Detect actual image format from content (not URL), convert SVG/WebP→PNG
+_APP_VERSION = '2.9.4'  # 2.9.4 = Async email series deploy (avoids Heroku 30s timeout), format detection fix
 
 import os
 import re
@@ -3540,7 +3540,8 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
 
 @app.route('/api/sf/deploy-email-series', methods=['POST'])
 def deploy_email_series():
-    """Deploy email series to Salesforce: upload emails to CMS, publish, create flow."""
+    """Deploy email series to Salesforce (async to avoid Heroku 30s timeout).
+    Returns a jobId immediately — frontend polls /api/sf/deploy-email-series/status/<jobId>."""
     token = session.get('sf_access_token')
     instance = session.get('sf_instance_url')
     if not token or not instance:
@@ -3554,10 +3555,31 @@ def deploy_email_series():
     if not data.get('emails'):
         return jsonify({'error': 'No emails provided'}), 400
 
-    # Build the app's public URL for proxying images in email HTML
     proxy_base = _public_base_url()
-    result = _deploy_email_series_internal(token, instance, data, proxy_base_url=proxy_base)
-    return jsonify(result)
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {'status': 'running', 'type': 'deploy-email-series'}
+
+    def _run():
+        try:
+            result = _deploy_email_series_internal(token, instance, data, proxy_base_url=proxy_base)
+            jobs[job_id] = {'status': 'done', 'result': result}
+        except Exception as e:
+            jobs[job_id] = {'status': 'done', 'result': {'success': False, 'errors': [str(e)[:200]], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}}
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({'jobId': job_id, 'status': 'running'})
+
+
+@app.route('/api/sf/deploy-email-series/status/<job_id>')
+def deploy_email_series_status(job_id):
+    """Poll for async email series deploy result."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    if job['status'] == 'running':
+        return jsonify({'status': 'running'})
+    return jsonify({'status': 'done', **job.get('result', {})})
 
 
 @app.route('/api/sf/deploy-flow', methods=['POST'])

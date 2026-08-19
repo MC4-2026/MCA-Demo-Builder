@@ -1900,7 +1900,8 @@ async function deployEmailSeries(seriesKey, phaseNum) {
   }, 3000);
 
   try {
-    const resp = await fetch(`${API_BASE}/api/sf/deploy-email-series`, {
+    // Start async deploy job
+    const startResp = await fetch(`${API_BASE}/api/sf/deploy-email-series`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1922,15 +1923,35 @@ async function deployEmailSeries(seriesKey, phaseNum) {
       })
     });
 
-    clearInterval(interval);
-
-    if (!resp.ok) {
-      const errData = await resp.json().catch(() => ({}));
-      throw new Error(errData.error || `Deploy failed (${resp.status})`);
+    if (!startResp.ok) {
+      clearInterval(interval);
+      const errData = await startResp.json().catch(() => ({}));
+      throw new Error(errData.error || `Deploy failed (${startResp.status})`);
     }
 
-    const result = await resp.json();
-    if (!result.success && result.errors?.length) throw new Error(result.errors[0]);
+    const startData = await startResp.json();
+    if (!startData.jobId) {
+      // Server returned result directly (non-async fallback)
+      clearInterval(interval);
+      if (!startData.success && startData.errors?.length) throw new Error(startData.errors[0]);
+      var result = startData;
+    } else {
+      // Poll for completion
+      const jobId = startData.jobId;
+      let result;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const pollResp = await fetch(`${API_BASE}/api/sf/deploy-email-series/status/${jobId}`);
+        const pollData = await pollResp.json();
+        if (pollData.status === 'done') {
+          result = pollData;
+          break;
+        }
+      }
+      clearInterval(interval);
+      if (!result) throw new Error('Deploy timed out (2 minutes)');
+      if (!result.success && result.errors?.length) throw new Error(result.errors[0]);
+    }
 
     document.getElementById(`phase${phaseNum}Bar`).style.width = '100%';
     deployResults.emailSeries[seriesKey] = result;
