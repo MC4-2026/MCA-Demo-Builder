@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.8.0'  # 2.8.0 = Fix deploy regression (binary-first for non-firewalled), add og:image logo fallback
+_APP_VERSION = '2.8.1'  # 2.8.1 = Use CMS-hosted image URLs in emails (not proxy); proxy only as fallback
 
 import os
 import re
@@ -2445,14 +2445,16 @@ def render_email_html(copy_data, config, logo_url='', hero_url='', header_color=
     cta_url = copy_data.get('cta_url', '#')
 
     def _img_src(url):
-        """Return proxied URL for previews/deployment, original URL otherwise."""
+        """Return proxied URL for previews, pass-through for CMS URLs, proxy fallback for others."""
         if not url:
             return url
         if preview:
             return f'/api/img-proxy?url={quote(url, safe="")}'
+        # Don't re-proxy URLs that are already CMS-hosted or already proxied
+        if '/cms/media/' in url or '/api/img-proxy' in url:
+            return url
         if proxy_base_url:
-            # Use the app's public proxy for deployed emails — ensures images
-            # render in the Salesforce email editor and in sent emails
+            # External URL not in CMS — proxy it so it renders in email editor
             base = proxy_base_url.rstrip('/')
             return f'{base}/api/img-proxy?url={quote(url, safe="")}'
         return url
@@ -3102,29 +3104,42 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
         hero_url = email_data.get('heroUrl', '')
 
         # Image URL strategy:
-        # If we have a proxy_base_url, all images go through our app's img-proxy.
-        # This solves: CDN hotlink/CSP blocks, SVG rendering, WebP conversion, etc.
-        # The proxy serves images publicly over HTTPS so they work in both
-        # the Salesforce email editor AND in sent emails.
-        #
-        # If no proxy_base_url, try CMS URLs as fallback, then original URLs.
-        if not proxy_base_url:
-            # Legacy fallback: try CMS media URLs
-            if logo_url and logo_url in image_map:
-                cms_logo = image_map[logo_url].get('cmsUrl', '')
-                if cms_logo:
-                    logo_url = cms_logo
-                elif image_map[logo_url].get('wasSvg'):
-                    logo_url = ''
-            elif logo_url and _is_svg_url(logo_url):
+        # ALWAYS prefer CMS-hosted URLs (images were uploaded to CMS for this reason).
+        # Only fall back to proxy URLs if CMS upload didn't produce a usable URL.
+        # SVG logos with no CMS URL get dropped (SVGs don't render in email clients).
+        logo_resolved = False
+        if logo_url and logo_url in image_map:
+            cms_logo = image_map[logo_url].get('cmsUrl', '')
+            if cms_logo:
+                logo_url = cms_logo
+                logo_resolved = True
+            elif image_map[logo_url].get('wasSvg'):
+                # SVG was uploaded but no CMS URL — use proxy as fallback
+                if proxy_base_url:
+                    logo_url = f'{proxy_base_url.rstrip("/")}/api/img-proxy?url={quote(logo_url, safe="")}'
+                    logo_resolved = True
+                else:
+                    logo_url = ''  # Can't render SVG in email without proxy
+        elif logo_url and _is_svg_url(logo_url):
+            # SVG not in image_map at all — proxy or drop
+            if proxy_base_url:
+                logo_url = f'{proxy_base_url.rstrip("/")}/api/img-proxy?url={quote(logo_url, safe="")}'
+                logo_resolved = True
+            else:
                 logo_url = ''
-            if hero_url and hero_url in image_map:
-                cms_hero = image_map[hero_url].get('cmsUrl', '')
-                if cms_hero:
-                    hero_url = cms_hero
-        # When proxy_base_url is set, render_email_html handles proxying all URLs
 
-        email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color, proxy_base_url=proxy_base_url)
+        hero_resolved = False
+        if hero_url and hero_url in image_map:
+            cms_hero = image_map[hero_url].get('cmsUrl', '')
+            if cms_hero:
+                hero_url = cms_hero
+                hero_resolved = True
+
+        # For images NOT in the CMS map and not yet resolved, use proxy as fallback
+        # (handles cases where CMS upload failed but proxy can still serve them)
+        use_proxy = proxy_base_url if not (logo_resolved and hero_resolved) else ''
+
+        email_html = render_email_html(copy_data, config, logo_url, hero_url, header_color=header_color, proxy_base_url=use_proxy)
 
         email_name = f"{brand_name}_{series['name'].replace(' ', '_')}_Email_{i + 1}"
         email_title = f"{brand_name} - {series['name']} - Email {i + 1}"
