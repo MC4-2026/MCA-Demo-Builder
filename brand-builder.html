@@ -1840,7 +1840,13 @@ async function deployPhase1() {
     deployResults.brand = result;
 
     const total = result.totalCreated || 0;
-    markPhaseComplete(1, `<div class="flex items-center gap-2 text-success font-medium"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Brand deployed — ${total} item(s) created</div>`);
+    const imgCount = Object.keys(result.imageMap || {}).length;
+    const ver = result.version || '?';
+    let phaseHtml = `<div class="flex items-center gap-2 text-success font-medium"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Brand deployed — ${total} item(s) created (${imgCount} image${imgCount !== 1 ? 's' : ''}) <span class="text-xs text-gray-400 ml-2">v${ver}</span></div>`;
+    if (result.errors && result.errors.length > 0) {
+      phaseHtml += `<div class="mt-2 text-xs text-amber-600">${result.errors.map(e => `⚠️ ${e}`).join('<br>')}</div>`;
+    }
+    markPhaseComplete(1, phaseHtml);
 
   } catch (e) {
     clearInterval(interval);

@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.6.1'  # 2.6.1 = Fix image uploads: fallback to URL ref when binary upload fails on enhanced CMS
+_APP_VERSION = '2.7.0'  # 2.7.0 = Robust image uploads: proxy-URL fallback, detailed error capture, skip binary on enhanced CMS
 
 import os
 import re
@@ -1688,7 +1688,7 @@ def create_workspace():
     })
 
 
-def _deploy_brand_internal(token, instance, config, workspace_id):
+def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=''):
     """Core brand deploy logic: uploads images + creates brand + publishes.
     Returns dict with brandId, contentIds, totalCreated, errors, success,
     and imageMap: {original_url: {contentKey, managedContentId, cmsUrl, type}}."""
@@ -1702,24 +1702,39 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
     images = config.get('images', [])
     for img in images:
         original_url = img.get('url', '')
+        if not original_url:
+            continue
         img_title = (config.get('brandName', 'Brand') + '_' + (img.get('alt', 'image'))[:40]).replace(' ', '_')
+        # Sanitize title: CMS doesn't allow special chars in titles
+        img_title = re.sub(r'[^A-Za-z0-9_\-]', '_', img_title)[:80]
         try:
-            # SVG handling: convert to PNG for email compatibility
             is_svg = _is_svg_url(original_url)
-            # Helper: create image as URL reference (works on all CMS space types)
-            def _url_ref_upload():
+
+            # Build the publicly-accessible proxy URL for this image.
+            # Salesforce CMS URL-reference uploads fetch the URL — so it must be reachable
+            # from Salesforce servers.  Our /api/img-proxy serves any image publicly over
+            # HTTPS and also converts SVG→PNG automatically.
+            proxy_url = original_url  # default: use original
+            if proxy_base_url:
+                proxy_url = f'{proxy_base_url.rstrip("/")}/api/img-proxy?url={quote(original_url, safe="")}'
+
+            # ── Strategy: URL reference first (simplest, works on all CMS types) ──
+            # Enhanced CMS spaces reject multipart binary uploads (400 INVALID_API_INPUT).
+            # URL reference uploads work on both standard and enhanced spaces.
+            # Use the proxy URL so Salesforce can always reach the image.
+            def _url_ref_upload(ref_url):
                 return sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
                     'contentSpaceOrFolderId': workspace_id,
                     'contentType': 'sfdc_cms__image',
                     'title': img_title,
                     'contentBody': {
                         'sfdc_cms:media': {
-                            'source': {'type': 'url', 'url': original_url}
+                            'source': {'type': 'url', 'url': ref_url}
                         }
                     }
                 })
 
-            # Helper: attempt multipart binary upload
+            # ── Strategy: binary upload (only works on non-enhanced CMS spaces) ──
             def _binary_upload(data_bytes, mime, ext):
                 inp = json.dumps({
                     'contentSpaceOrFolderId': workspace_id,
@@ -1745,58 +1760,65 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
                     timeout=15
                 )
 
+            def _resp_ok(r):
+                return r.ok if hasattr(r, 'ok') else (r.status_code in (200, 201))
+
             img_resp = None
+            upload_method = 'none'
 
-            if is_svg:
-                png_bytes, svg_err = _svg_to_png_bytes(original_url)
-                if png_bytes:
-                    # Try binary upload of converted PNG
-                    img_resp = _binary_upload(png_bytes, 'image/png', 'png')
-                    # If binary upload fails (enhanced CMS), fall back to URL reference
-                    if not (img_resp.ok if hasattr(img_resp, 'ok') else img_resp.status_code in (200, 201)):
-                        img_resp = _url_ref_upload()
-                else:
-                    img_resp = _url_ref_upload()
-            else:
-                # Non-SVG: try download + binary upload, fall back to URL ref
-                img_bytes = None
-                img_mime = 'image/jpeg'
-                img_ext = 'jpg'
-                try:
-                    dl_resp = requests.get(original_url, timeout=10, headers={
-                        'User-Agent': 'Mozilla/5.0',
-                        'Accept': 'image/*',
-                        'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
-                    })
-                    if dl_resp.ok and len(dl_resp.content) > 100:
-                        ct = dl_resp.headers.get('Content-Type', '').lower()
-                        if 'png' in ct:
-                            img_mime, img_ext = 'image/png', 'png'
-                        elif 'gif' in ct:
-                            img_mime, img_ext = 'image/gif', 'gif'
-                        elif 'webp' in ct:
-                            img_mime, img_ext = 'image/webp', 'webp'
-                        elif 'svg' in ct:
-                            img_mime, img_ext = 'image/svg+xml', 'svg'
-                        img_bytes = dl_resp.content
-                except Exception:
-                    pass
+            # ── Try URL reference upload first (works on enhanced CMS) ──
+            img_resp = _url_ref_upload(proxy_url)
+            upload_method = 'url_ref_proxy'
 
-                if img_bytes:
-                    img_resp = _binary_upload(img_bytes, img_mime, img_ext)
-                    # If binary upload fails (enhanced CMS), fall back to URL reference
-                    if not (img_resp.ok if hasattr(img_resp, 'ok') else img_resp.status_code in (200, 201)):
-                        img_resp = _url_ref_upload()
-                else:
-                    # Download failed — URL reference as last resort
-                    img_resp = _url_ref_upload()
+            if not _resp_ok(img_resp):
+                # Proxy URL failed — try with original URL directly
+                err1 = img_resp.text[:150] if hasattr(img_resp, 'text') else str(img_resp)[:150]
+                img_resp = _url_ref_upload(original_url)
+                upload_method = 'url_ref_original'
 
-            if img_resp.ok if hasattr(img_resp, 'ok') else (img_resp.status_code in (200, 201)):
+                if not _resp_ok(img_resp):
+                    # URL reference also failed — try binary upload as last resort
+                    err2 = img_resp.text[:150] if hasattr(img_resp, 'text') else str(img_resp)[:150]
+                    img_bytes = None
+                    img_mime = 'image/png' if is_svg else 'image/jpeg'
+                    img_ext = 'png' if is_svg else 'jpg'
+
+                    if is_svg:
+                        png_bytes, svg_err = _svg_to_png_bytes(original_url)
+                        if png_bytes:
+                            img_bytes = png_bytes
+                    else:
+                        try:
+                            dl_resp = requests.get(original_url, timeout=10, headers={
+                                'User-Agent': 'Mozilla/5.0',
+                                'Accept': 'image/*',
+                                'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
+                            })
+                            if dl_resp.ok and len(dl_resp.content) > 100:
+                                ct = dl_resp.headers.get('Content-Type', '').lower()
+                                if 'png' in ct:
+                                    img_mime, img_ext = 'image/png', 'png'
+                                elif 'gif' in ct:
+                                    img_mime, img_ext = 'image/gif', 'gif'
+                                elif 'webp' in ct:
+                                    img_mime, img_ext = 'image/webp', 'webp'
+                                img_bytes = dl_resp.content
+                        except Exception:
+                            pass
+
+                    if img_bytes:
+                        img_resp = _binary_upload(img_bytes, img_mime, img_ext)
+                        upload_method = 'binary'
+                    else:
+                        # All methods failed — report detailed error
+                        errors.append(f'Image upload failed ({img.get("alt", "?")}): proxy={err1[:80]}, direct={err2[:80]}')
+                        continue
+
+            if _resp_ok(img_resp):
                 resp_data = img_resp.json()
                 managed_id = resp_data.get('managedContentId', resp_data.get('id', ''))
                 content_key = resp_data.get('contentKey', resp_data.get('contentUrlName', ''))
                 content_ids.append(managed_id)
-                # Build CMS media URL for this image
                 cms_url = ''
                 if content_key:
                     cms_url = f'{instance}/cms/media/{content_key}'
@@ -1805,13 +1827,14 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
                     'managedContentId': managed_id,
                     'cmsUrl': cms_url,
                     'type': img.get('type', 'image'),
-                    'wasSvg': is_svg
+                    'wasSvg': is_svg,
+                    'uploadMethod': upload_method
                 }
             else:
                 err_text = img_resp.text[:200] if hasattr(img_resp, 'text') else str(img_resp)[:200]
-                errors.append(f'Image upload failed ({img.get("alt", "unknown")}): {err_text}')
+                errors.append(f'Image upload failed ({img.get("alt", "?")}): method={upload_method} err={err_text}')
         except Exception as e:
-            errors.append(f'Image error: {str(e)[:100]}')
+            errors.append(f'Image error ({img.get("alt", "?")}): {str(e)[:150]}')
 
     # 2. Create Brand content item
     try:
@@ -1872,7 +1895,8 @@ def deploy_brand():
     if not workspace_id:
         return jsonify({'error': 'No workspace selected'}), 400
 
-    result = _deploy_brand_internal(token, instance, config, workspace_id)
+    proxy_base = request.host_url.rstrip('/')
+    result = _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=proxy_base)
     if not result.get('success'):
         return jsonify({'error': result['errors'][-1] if result['errors'] else 'Deploy failed', 'imageErrors': result['errors']}), 500
     return jsonify(result)
@@ -3547,7 +3571,7 @@ def deploy_all():
     }
 
     # Step 1: Deploy brand + images
-    brand_result = _deploy_brand_internal(token, instance, config, workspace_id)
+    brand_result = _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url=proxy_base)
     results['brand'] = brand_result
     if brand_result.get('errors'):
         results['errors'].extend(brand_result['errors'])
