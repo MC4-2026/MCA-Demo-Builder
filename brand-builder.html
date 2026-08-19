@@ -1930,7 +1930,7 @@ async function deployEmailSeries(seriesKey, phaseNum) {
     }
 
     const startData = await startResp.json();
-    let result;
+    let result = null;
     if (!startData.jobId) {
       // Server returned result directly (non-async fallback)
       clearInterval(interval);
@@ -1953,12 +1953,18 @@ async function deployEmailSeries(seriesKey, phaseNum) {
       if (!result.success && result.errors?.length) throw new Error(result.errors[0]);
     }
 
+    // Defensive: ensure result is always a valid object with expected shape
+    if (!result || typeof result !== 'object') {
+      result = { success: false, emails: [], flow: null, campaign: null, errors: ['No result received'], totalCreated: 0 };
+    }
+
     document.getElementById(`phase${phaseNum}Bar`).style.width = '100%';
+    deployResults.emailSeries = deployResults.emailSeries || {};
     deployResults.emailSeries[seriesKey] = result;
 
     // Build result summary HTML
     let html = '';
-    const emailCount = result.emails?.length || 0;
+    const emailCount = (result && result.emails) ? result.emails.length : 0;
     if (emailCount > 0) html += `<div class="flex items-center gap-1 text-success"><span>✅</span> ${emailCount} email(s) created</div>`;
 
     if (result.flow) {
@@ -1998,6 +2004,7 @@ async function deployEmailSeries(seriesKey, phaseNum) {
 
   } catch (e) {
     clearInterval(interval);
+    console.error(`[Phase ${phaseNum}] Deploy error:`, e, 'result was:', typeof result, result);
     markPhaseError(phaseNum, e.message);
   }
 }

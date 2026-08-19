@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.5'  # 2.9.5 = Debug trace for flow/campaign/linking, thread-safe sf_api, more link retries
+_APP_VERSION = '2.9.6'  # 2.9.6 = Fix result scoping bug, defensive guards, no-cache HTML, console.error dump
 
 import os
 import re
@@ -1296,7 +1296,10 @@ def regenerate_identity():
 
 @app.route('/')
 def index():
-    return send_from_directory('.', 'brand-builder.html')
+    resp = send_from_directory('.', 'brand-builder.html')
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 
 @app.route('/download-email-series.html')
