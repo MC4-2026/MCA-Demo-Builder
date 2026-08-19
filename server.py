@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.7.1'  # 2.7.1 = Fix proxy URLs: HTTPS + correct public hostname via ProxyFix (was http://internal-dyno-host)
+_APP_VERSION = '2.8.0'  # 2.8.0 = Fix deploy regression (binary-first for non-firewalled), add og:image logo fallback
 
 import os
 import re
@@ -868,6 +868,28 @@ def extract_images(soup, base_url):
         add_hero(el['data-bg'], 'Background Image')
     for el in soup.find_all(attrs={'data-bg-src': True}):
         add_hero(el['data-bg-src'], 'Background Image')
+
+    # ── Phase 2b: Fallback logos from meta tags ──
+    # If no logos found from HTML elements, check og:image and apple-touch-icon
+    if not logos:
+        og_img = soup.find('meta', attrs={'property': 'og:image'})
+        if og_img and og_img.get('content'):
+            og_url = og_img['content']
+            og_alt = ''
+            og_alt_tag = soup.find('meta', attrs={'property': 'og:image:alt'})
+            if og_alt_tag and og_alt_tag.get('content'):
+                og_alt = og_alt_tag['content']
+            if not og_alt:
+                og_alt = soup.find('meta', attrs={'property': 'og:site_name'})
+                og_alt = og_alt['content'] if og_alt and og_alt.get('content') else 'Logo'
+            add_logo(resolve_url(og_url, base_url) or og_url, og_alt)
+
+        # apple-touch-icon as another fallback
+        if not logos:
+            touch_icon = soup.find('link', rel=lambda r: r and 'apple-touch-icon' in ' '.join(r).lower())
+            if touch_icon and touch_icon.get('href'):
+                icon_url = resolve_url(touch_icon['href'], base_url) or touch_icon['href']
+                add_logo(icon_url, 'Logo')
 
     # ── Phase 3: Merge with guaranteed slots ──
     # Reserve up to 4 slots for logos, up to 10 for heroes, total max 14
@@ -1787,52 +1809,60 @@ def _deploy_brand_internal(token, instance, config, workspace_id, proxy_base_url
             img_resp = None
             upload_method = 'none'
 
-            # ── Try URL reference upload first (works on enhanced CMS) ──
-            img_resp = _url_ref_upload(proxy_url)
-            upload_method = 'url_ref_proxy'
+            # ── Strategy: binary upload FIRST (works when app is behind firewall) ──
+            # Binary uploads work on standard CMS spaces and don't require
+            # Salesforce to reach our app.  Only enhanced CMS spaces reject them.
+            # If binary fails, fall back to URL reference uploads.
+            img_bytes = None
+            img_mime = 'image/png' if is_svg else 'image/jpeg'
+            img_ext = 'png' if is_svg else 'jpg'
 
-            if not _resp_ok(img_resp):
-                # Proxy URL failed — try with original URL directly
-                err1 = img_resp.text[:150] if hasattr(img_resp, 'text') else str(img_resp)[:150]
-                img_resp = _url_ref_upload(original_url)
-                upload_method = 'url_ref_original'
+            if is_svg:
+                png_bytes, svg_err = _svg_to_png_bytes(original_url)
+                if png_bytes:
+                    img_bytes = png_bytes
+            else:
+                try:
+                    dl_resp = requests.get(original_url, timeout=10, headers={
+                        'User-Agent': 'Mozilla/5.0',
+                        'Accept': 'image/*',
+                        'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
+                    })
+                    if dl_resp.ok and len(dl_resp.content) > 100:
+                        ct = dl_resp.headers.get('Content-Type', '').lower()
+                        if 'png' in ct:
+                            img_mime, img_ext = 'image/png', 'png'
+                        elif 'gif' in ct:
+                            img_mime, img_ext = 'image/gif', 'gif'
+                        elif 'webp' in ct:
+                            img_mime, img_ext = 'image/webp', 'webp'
+                        img_bytes = dl_resp.content
+                except Exception:
+                    pass
 
-                if not _resp_ok(img_resp):
-                    # URL reference also failed — try binary upload as last resort
-                    err2 = img_resp.text[:150] if hasattr(img_resp, 'text') else str(img_resp)[:150]
-                    img_bytes = None
-                    img_mime = 'image/png' if is_svg else 'image/jpeg'
-                    img_ext = 'png' if is_svg else 'jpg'
+            if img_bytes:
+                img_resp = _binary_upload(img_bytes, img_mime, img_ext)
+                upload_method = 'binary'
 
-                    if is_svg:
-                        png_bytes, svg_err = _svg_to_png_bytes(original_url)
-                        if png_bytes:
-                            img_bytes = png_bytes
-                    else:
-                        try:
-                            dl_resp = requests.get(original_url, timeout=10, headers={
-                                'User-Agent': 'Mozilla/5.0',
-                                'Accept': 'image/*',
-                                'Referer': original_url.split('/')[0] + '//' + original_url.split('/')[2] + '/'
-                            })
-                            if dl_resp.ok and len(dl_resp.content) > 100:
-                                ct = dl_resp.headers.get('Content-Type', '').lower()
-                                if 'png' in ct:
-                                    img_mime, img_ext = 'image/png', 'png'
-                                elif 'gif' in ct:
-                                    img_mime, img_ext = 'image/gif', 'gif'
-                                elif 'webp' in ct:
-                                    img_mime, img_ext = 'image/webp', 'webp'
-                                img_bytes = dl_resp.content
-                        except Exception:
-                            pass
+            # If binary upload failed (e.g. enhanced CMS), fall back to URL reference
+            if img_resp is None or not _resp_ok(img_resp):
+                err_binary = ''
+                if img_resp is not None:
+                    err_binary = img_resp.text[:100] if hasattr(img_resp, 'text') else str(img_resp)[:100]
 
-                    if img_bytes:
-                        img_resp = _binary_upload(img_bytes, img_mime, img_ext)
-                        upload_method = 'binary'
-                    else:
-                        # All methods failed — report detailed error
-                        errors.append(f'Image upload failed ({img.get("alt", "?")}): proxy={err1[:80]}, direct={err2[:80]}')
+                # Try URL reference with proxy URL (publicly accessible)
+                if proxy_url != original_url:
+                    img_resp = _url_ref_upload(proxy_url)
+                    upload_method = 'url_ref_proxy'
+
+                if img_resp is None or not _resp_ok(img_resp):
+                    # Try URL reference with original URL directly
+                    img_resp = _url_ref_upload(original_url)
+                    upload_method = 'url_ref_original'
+
+                    if not _resp_ok(img_resp):
+                        err_ref = img_resp.text[:100] if hasattr(img_resp, 'text') else str(img_resp)[:100]
+                        errors.append(f'Image upload failed ({img.get("alt", "?")}): binary={err_binary[:60]}, ref={err_ref[:60]}')
                         continue
 
             if _resp_ok(img_resp):
