@@ -1983,6 +1983,17 @@ async function deployEmailSeries(seriesKey, phaseNum) {
       html += `<div class="text-xs text-gray-400 mt-1">Server v${result.version}</div>`;
     }
 
+    // Show debug info in a collapsible section if available
+    if (result._debug?.length) {
+      const debugId = `debug_${seriesKey}_${phaseNum}`;
+      html += `<details class="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+        <summary class="cursor-pointer px-3 py-1.5 bg-gray-50 text-xs text-gray-500 hover:bg-gray-100 select-none">🔍 Debug trace (${result._debug.length} steps)</summary>
+        <div id="${debugId}" class="px-3 py-2 text-xs font-mono text-gray-500 space-y-0.5 max-h-48 overflow-y-auto bg-gray-50/50">
+          ${result._debug.map((d, i) => `<div class="border-l-2 ${d.includes('FAILED') || d.includes('exception') || d.includes('SKIPPED') ? 'border-red-300' : d.includes('SUCCESS') ? 'border-green-300' : 'border-gray-300'} pl-2">${i+1}. ${d}</div>`).join('')}
+        </div>
+      </details>`;
+    }
+
     markPhaseComplete(phaseNum, html || '<div class="text-success">✅ Deployed</div>');
 
   } catch (e) {

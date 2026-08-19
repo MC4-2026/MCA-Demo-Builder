@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.4'  # 2.9.4 = Async email series deploy (avoids Heroku 30s timeout), format detection fix
+_APP_VERSION = '2.9.5'  # 2.9.5 = Debug trace for flow/campaign/linking, thread-safe sf_api, more link retries
 
 import os
 import re
@@ -1503,7 +1503,8 @@ def build_brand_content_body(config):
 
 
 def sf_api(method, path, access_token, instance_url, body=None, _retried=False, timeout=15):
-    """Make an authenticated Salesforce REST API call with auto-refresh on 401."""
+    """Make an authenticated Salesforce REST API call with auto-refresh on 401.
+    Thread-safe: gracefully handles missing Flask request context (background threads)."""
     url = instance_url.rstrip('/') + path
     headers = {
         'Authorization': f'Bearer {access_token}',
@@ -1517,10 +1518,14 @@ def sf_api(method, path, access_token, instance_url, body=None, _retried=False, 
         resp = requests.request(method, url, headers=headers, json=body, timeout=timeout)
 
     # Auto-refresh on 401 (expired token)
+    # Wrapped in try/except for thread safety — session is unavailable in background threads
     if resp.status_code == 401 and not _retried:
-        if try_refresh_token():
-            new_token = session.get('sf_access_token')
-            return sf_api(method, path, new_token, instance_url, body=body, _retried=True)
+        try:
+            if try_refresh_token():
+                new_token = session.get('sf_access_token')
+                return sf_api(method, path, new_token, instance_url, body=body, _retried=True)
+        except RuntimeError:
+            pass  # No request context (background thread) — cannot refresh, return 401 response
 
     return resp
 
@@ -3134,6 +3139,10 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
     series = EMAIL_SERIES[series_key]
     created_emails = []
     errors = []
+    _debug = []  # Detailed step-by-step debug info for troubleshooting
+
+    _debug.append(f"createFlow={create_flow}, createCampaign={create_campaign}")
+    _debug.append(f"workspace: id={workspace_id}, name={workspace_name}")
 
     # Step 1: Upload each email to CMS
     for i, email_data in enumerate(emails):
@@ -3206,14 +3215,20 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                 timeout=15
             )
 
-            if resp.status_code == 401 and try_refresh_token():
-                token = session.get('sf_access_token')
-                resp = requests.post(
-                    f"{instance}/services/data/v67.0/connect/cms/contents",
-                    headers={'Authorization': f'Bearer {token}'},
-                    files=files,
-                    timeout=15
-                )
+            if resp.status_code == 401:
+                # Try token refresh — but this may fail in background threads (no session)
+                try:
+                    if try_refresh_token():
+                        token = session.get('sf_access_token')
+                        resp = requests.post(
+                            f"{instance}/services/data/v67.0/connect/cms/contents",
+                            headers={'Authorization': f'Bearer {token}'},
+                            files=files,
+                            timeout=15
+                        )
+                except RuntimeError:
+                    errors.append(f"Email {i + 1}: token expired, cannot refresh in background")
+                    pass  # No request context — skip refresh
 
             if resp.status_code in (200, 201):
                 result = resp.json()
@@ -3235,11 +3250,14 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
     # The brand association and email content are set at creation time.
     # Images are published separately in _deploy_brand_internal.
 
+    _debug.append(f"Emails created: {len(created_emails)} of {len(emails)}")
+
     # Step 3: Create the flow if requested and we have emails
     # Uses _soap_deploy_flow which submits + polls checkDeployStatus until done
     flow_result = None
     if create_flow and len(created_emails) > 0:
         email_content_keys = [e['contentKey'] for e in created_emails]
+        _debug.append(f"Flow: generating XML with {len(email_content_keys)} email keys, workspace={workspace_name}")
 
         discovered_data_graph = data.get('dataGraph', 'Marketing_Data_Graph')
         discovered_dmo = data.get('dmoObject', 'UnifiedssotIndividualInd1__dlm')
@@ -3254,8 +3272,10 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
             flow_xml = flow_data['xml']
             flow_api_name = flow_data['flowApiName']
             wait_days = EMAIL_SERIES[series_key]['wait_days']
+            _debug.append(f"Flow: deploying via SOAP, apiName={flow_api_name}")
 
             deploy_result = _soap_deploy_flow(flow_xml, flow_api_name, token, instance, poll_timeout=45)
+            _debug.append(f"Flow deploy result: success={deploy_result['success']}, deployId={deploy_result.get('deployId','')}, error={deploy_result.get('error','')}")
 
             if deploy_result['success']:
                 flow_result = {
@@ -3279,10 +3299,17 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                     'error': error_detail,
                     'componentErrors': component_errors[:5]
                 }
+        else:
+            _debug.append("Flow: generate_flow_xml returned None")
+    elif not create_flow:
+        _debug.append("Flow: skipped (createFlow=False)")
+    elif len(created_emails) == 0:
+        _debug.append("Flow: skipped (no emails created)")
 
     # Step 4: Create Campaign + Campaign Brief if requested
     campaign_result = None
     if create_campaign and len(created_emails) > 0:
+        _debug.append("Campaign: starting creation")
         series = EMAIL_SERIES[series_key]
         campaign_name = f"{brand_name} {series['name']}"
 
@@ -3366,6 +3393,8 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
             except Exception:
                 pass
 
+            _debug.append(f"Campaign: bu_id={bu_id or '(none)'}, brief_available={brief_available}, briefid_on_campaign={briefid_on_campaign}, include_bu_campaign={include_bu_campaign}")
+
             if include_bu_campaign:
                 camp_body['BusinessUnitId'] = bu_id
 
@@ -3419,6 +3448,7 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                 errors.append("Brief object not available in this org — campaign created without brief")
 
             # Attempt composite call with retry
+            _debug.append(f"Campaign: composite call with {len(subrequests)} subrequests: {[s['referenceId'] for s in subrequests]}")
             comp_resp = None
             for comp_attempt in range(2):
                 if comp_attempt > 0:
@@ -3429,10 +3459,12 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                     break
                 # On 401, sf_api auto-refreshes, so retry immediately
                 if comp_resp.status_code == 401:
+                    _debug.append(f"Campaign: composite got 401 on attempt {comp_attempt+1}")
                     continue
 
             if comp_resp and comp_resp.status_code in (200, 201):
                 comp_results = comp_resp.json().get('compositeResponse', [])
+                _debug.append(f"Campaign: composite {comp_resp.status_code}, {len(comp_results)} sub-results: {[(r.get('referenceId'), r.get('httpStatusCode')) for r in comp_results]}")
                 camp_sub = next((r for r in comp_results if r.get('referenceId') == 'newCampaign'), None)
 
                 if camp_sub and camp_sub.get('httpStatusCode') in (200, 201):
@@ -3441,14 +3473,17 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                         'name': campaign_name,
                         'status': 'Created'
                     }
+                    _debug.append(f"Campaign: created id={campaign_result['id']}")
                     if brief_available:
                         brief_sub = next((r for r in comp_results if r.get('referenceId') == 'newBrief'), None)
                         if brief_sub and brief_sub.get('httpStatusCode') in (200, 201):
                             campaign_result['briefId'] = brief_sub['body'].get('id', '')
                             campaign_result['briefName'] = brief_name
+                            _debug.append(f"Campaign: brief created id={campaign_result['briefId']}")
                         else:
                             brief_err = brief_sub.get('body', 'Unknown error') if brief_sub else 'No response'
                             errors.append(f"Brief creation failed (campaign still created): {str(brief_err)[:200]}")
+                            _debug.append(f"Campaign: brief FAILED: {str(brief_err)[:200]}")
                 else:
                     # Composite campaign sub-request failed — try direct Campaign POST as fallback
                     camp_err = camp_sub.get('body', 'Unknown') if camp_sub else 'No response'
@@ -3471,6 +3506,7 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                 # Composite API call failed entirely — try direct Campaign POST as fallback
                 comp_err = f"{comp_resp.status_code} - {comp_resp.text[:200]}" if comp_resp else 'No response'
                 errors.append(f"Campaign+Brief composite failed: {comp_err} — trying direct create")
+                _debug.append(f"Campaign: composite FAILED: {comp_err}")
                 try:
                     direct_resp = sf_api('POST', '/services/data/v67.0/sobjects/Campaign',
                                          token, instance, body=camp_body)
@@ -3487,6 +3523,11 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                     errors.append(f"Campaign direct fallback error: {str(de)[:150]}")
         except Exception as ce:
             errors.append(f"Campaign: {str(ce)[:150]}")
+            _debug.append(f"Campaign: exception: {str(ce)[:200]}")
+    elif not create_campaign:
+        _debug.append("Campaign: skipped (createCampaign=False)")
+    elif len(created_emails) == 0:
+        _debug.append("Campaign: skipped (no emails created)")
 
     # Step 5: Link flow to campaign via FlowRecord.AssociatedRecordId
     # Flow deploys async via SOAP, so FlowRecord may not exist yet — retry a few times
@@ -3494,10 +3535,11 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
         flow_api = flow_result['apiName']
         camp_id = campaign_result['id']
         linked = False
-        for attempt in range(4):
+        _debug.append(f"Link: attempting flow={flow_api} → campaign={camp_id}")
+        for attempt in range(6):  # increased from 4 to 6 retries
             if attempt > 0:
                 import time
-                time.sleep(3)
+                time.sleep(4)  # increased from 3s to 4s between retries
             try:
                 fr_resp = sf_api('GET',
                     '/services/data/v67.0/query/?q=' + quote(
@@ -3505,6 +3547,7 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                     ), token, instance, timeout=8)
                 if fr_resp.ok:
                     fr_records = fr_resp.json().get('records', [])
+                    _debug.append(f"Link: attempt {attempt+1}, FlowRecord query ok, found {len(fr_records)} records")
                     if fr_records:
                         flow_record_id = fr_records[0]['Id']
                         link_resp = sf_api('PATCH',
@@ -3513,6 +3556,7 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                         if link_resp.ok or link_resp.status_code == 204:
                             flow_result['linkedToCampaign'] = True
                             linked = True
+                            _debug.append(f"Link: SUCCESS, FlowRecord {flow_record_id} linked to campaign {camp_id}")
                             break
                         else:
                             try:
@@ -3521,11 +3565,27 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
                             except Exception:
                                 link_err_msg = link_resp.text[:300]
                             errors.append(f"Flow-campaign link: {link_resp.status_code} - {link_err_msg}")
+                            _debug.append(f"Link: PATCH failed {link_resp.status_code}: {link_err_msg}")
                             break
-            except Exception:
-                pass
+                else:
+                    _debug.append(f"Link: attempt {attempt+1}, FlowRecord query failed: {fr_resp.status_code} - {fr_resp.text[:200]}")
+            except Exception as link_ex:
+                _debug.append(f"Link: attempt {attempt+1} exception: {str(link_ex)[:200]}")
         if not linked and 'linkedToCampaign' not in (flow_result or {}):
             errors.append("Flow-campaign link: FlowRecord not found after deploy (may still be processing)")
+            _debug.append("Link: FAILED after all retries")
+    else:
+        # Explain why linking was skipped
+        skip_reasons = []
+        if not flow_result:
+            skip_reasons.append("no flow_result")
+        elif not flow_result.get('apiName'):
+            skip_reasons.append("flow has no apiName")
+        if not campaign_result:
+            skip_reasons.append("no campaign_result")
+        elif not campaign_result.get('id'):
+            skip_reasons.append("campaign has no id")
+        _debug.append(f"Link: SKIPPED — {', '.join(skip_reasons) or 'unknown'}")
 
     return {
         'success': len(created_emails) > 0,
@@ -3534,7 +3594,8 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
         'campaign': campaign_result,
         'errors': errors,
         'totalCreated': len(created_emails),
-        'version': _APP_VERSION
+        'version': _APP_VERSION,
+        '_debug': _debug
     }
 
 
