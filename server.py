@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.6.0'  # 2.6.0 = Fix email images: use app proxy URLs so images render in editor + sent emails
+_APP_VERSION = '2.6.1'  # 2.6.1 = Fix image uploads: fallback to URL ref when binary upload fails on enhanced CMS
 
 import os
 import re
@@ -1706,52 +1706,59 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
         try:
             # SVG handling: convert to PNG for email compatibility
             is_svg = _is_svg_url(original_url)
+            # Helper: create image as URL reference (works on all CMS space types)
+            def _url_ref_upload():
+                return sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
+                    'contentSpaceOrFolderId': workspace_id,
+                    'contentType': 'sfdc_cms__image',
+                    'title': img_title,
+                    'contentBody': {
+                        'sfdc_cms:media': {
+                            'source': {'type': 'url', 'url': original_url}
+                        }
+                    }
+                })
+
+            # Helper: attempt multipart binary upload
+            def _binary_upload(data_bytes, mime, ext):
+                inp = json.dumps({
+                    'contentSpaceOrFolderId': workspace_id,
+                    'contentType': 'sfdc_cms__image',
+                    'title': img_title,
+                    'contentBody': {
+                        'sfdc_cms:media': {
+                            'source': {
+                                'type': 'file',
+                                'mimeType': mime,
+                                'fileName': img_title + '.' + ext
+                            }
+                        }
+                    }
+                })
+                return requests.post(
+                    f"{instance}/services/data/v62.0/connect/cms/contents",
+                    headers={'Authorization': f'Bearer {token}'},
+                    files={
+                        'ManagedContentInputParam': (None, inp, 'application/json'),
+                        'sfdc_cms:media': (img_title + '.' + ext, data_bytes, mime)
+                    },
+                    timeout=15
+                )
+
+            img_resp = None
+
             if is_svg:
                 png_bytes, svg_err = _svg_to_png_bytes(original_url)
                 if png_bytes:
-                    # Upload PNG as file (multipart) instead of URL reference
-                    png_b64 = base64.b64encode(png_bytes).decode('utf-8')
-                    input_param = json.dumps({
-                        'contentSpaceOrFolderId': workspace_id,
-                        'contentType': 'sfdc_cms__image',
-                        'title': img_title,
-                        'contentBody': {
-                            'sfdc_cms:media': {
-                                'source': {
-                                    'type': 'file',
-                                    'mimeType': 'image/png',
-                                    'fileName': img_title + '.png'
-                                }
-                            }
-                        }
-                    })
-                    files = {
-                        'ManagedContentInputParam': (None, input_param, 'application/json'),
-                        'sfdc_cms:media': (img_title + '.png', png_bytes, 'image/png')
-                    }
-                    img_resp = requests.post(
-                        f"{instance}/services/data/v62.0/connect/cms/contents",
-                        headers={'Authorization': f'Bearer {token}'},
-                        files=files,
-                        timeout=15
-                    )
+                    # Try binary upload of converted PNG
+                    img_resp = _binary_upload(png_bytes, 'image/png', 'png')
+                    # If binary upload fails (enhanced CMS), fall back to URL reference
+                    if not (img_resp.ok if hasattr(img_resp, 'ok') else img_resp.status_code in (200, 201)):
+                        img_resp = _url_ref_upload()
                 else:
-                    # SVG conversion failed — fall back to URL reference (won't work in email but brand still gets it)
-                    errors.append(f'SVG→PNG conversion skipped for {img.get("alt", "image")}: {svg_err}')
-                    img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
-                        'contentSpaceOrFolderId': workspace_id,
-                        'contentType': 'sfdc_cms__image',
-                        'title': img_title,
-                        'contentBody': {
-                            'sfdc_cms:media': {
-                                'source': {'type': 'url', 'url': original_url}
-                            }
-                        }
-                    })
+                    img_resp = _url_ref_upload()
             else:
-                # Non-SVG: download image and upload as binary file so CMS
-                # hosts the image data (URL references fail in the email editor
-                # when the original CDN blocks cross-origin / hotlink requests).
+                # Non-SVG: try download + binary upload, fall back to URL ref
                 img_bytes = None
                 img_mime = 'image/jpeg'
                 img_ext = 'jpg'
@@ -1776,42 +1783,13 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
                     pass
 
                 if img_bytes:
-                    input_param = json.dumps({
-                        'contentSpaceOrFolderId': workspace_id,
-                        'contentType': 'sfdc_cms__image',
-                        'title': img_title,
-                        'contentBody': {
-                            'sfdc_cms:media': {
-                                'source': {
-                                    'type': 'file',
-                                    'mimeType': img_mime,
-                                    'fileName': img_title + '.' + img_ext
-                                }
-                            }
-                        }
-                    })
-                    files = {
-                        'ManagedContentInputParam': (None, input_param, 'application/json'),
-                        'sfdc_cms:media': (img_title + '.' + img_ext, img_bytes, img_mime)
-                    }
-                    img_resp = requests.post(
-                        f"{instance}/services/data/v62.0/connect/cms/contents",
-                        headers={'Authorization': f'Bearer {token}'},
-                        files=files,
-                        timeout=15
-                    )
+                    img_resp = _binary_upload(img_bytes, img_mime, img_ext)
+                    # If binary upload fails (enhanced CMS), fall back to URL reference
+                    if not (img_resp.ok if hasattr(img_resp, 'ok') else img_resp.status_code in (200, 201)):
+                        img_resp = _url_ref_upload()
                 else:
-                    # Download failed — fall back to URL reference
-                    img_resp = sf_api('POST', '/services/data/v62.0/connect/cms/contents', token, instance, {
-                        'contentSpaceOrFolderId': workspace_id,
-                        'contentType': 'sfdc_cms__image',
-                        'title': img_title,
-                        'contentBody': {
-                            'sfdc_cms:media': {
-                                'source': {'type': 'url', 'url': original_url}
-                            }
-                        }
-                    })
+                    # Download failed — URL reference as last resort
+                    img_resp = _url_ref_upload()
 
             if img_resp.ok if hasattr(img_resp, 'ok') else (img_resp.status_code in (200, 201)):
                 resp_data = img_resp.json()
