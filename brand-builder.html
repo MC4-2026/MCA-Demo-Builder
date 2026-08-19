@@ -1930,15 +1930,15 @@ async function deployEmailSeries(seriesKey, phaseNum) {
     }
 
     const startData = await startResp.json();
+    let result;
     if (!startData.jobId) {
       // Server returned result directly (non-async fallback)
       clearInterval(interval);
       if (!startData.success && startData.errors?.length) throw new Error(startData.errors[0]);
-      var result = startData;
+      result = startData;
     } else {
       // Poll for completion
       const jobId = startData.jobId;
-      let result;
       for (let attempt = 0; attempt < 60; attempt++) {
         await new Promise(r => setTimeout(r, 2000));
         const pollResp = await fetch(`${API_BASE}/api/sf/deploy-email-series/status/${jobId}`);
