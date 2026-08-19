@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.1'  # 2.9.1 = Fix binary upload: include contentBody with source metadata in multipart JSON
+_APP_VERSION = '2.9.2'  # 2.9.2 = Convert SVG/WebP to PNG before CMS upload (email compatibility)
 
 import os
 import re
@@ -605,6 +605,19 @@ def _svg_to_png_bytes(svg_url):
         return png_bytes, None
     except Exception as e:
         return None, f'SVG conversion failed: {str(e)[:100]}'
+
+
+def _webp_to_png_bytes(img_data):
+    """Convert WebP image bytes to PNG bytes.
+    Returns (png_bytes, error_msg). If conversion fails, returns (None, error_msg)."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_data))
+        buf = io.BytesIO()
+        img.convert('RGBA').save(buf, format='PNG')
+        return buf.getvalue(), None
+    except Exception as e:
+        return None, f'WebP conversion failed: {str(e)[:100]}'
 
 
 def _is_svg_url(url):
@@ -1830,8 +1843,16 @@ def _deploy_brand_internal(token, instance, config, workspace_id):
                         elif 'gif' in ct:
                             img_mime, img_ext = 'image/gif', 'gif'
                         elif 'webp' in ct:
-                            img_mime, img_ext = 'image/webp', 'webp'
-                        img_bytes = dl_resp.content
+                            # Convert WebP → PNG (WebP doesn't work in emails)
+                            png_bytes, webp_err = _webp_to_png_bytes(dl_resp.content)
+                            if png_bytes:
+                                img_mime, img_ext = 'image/png', 'png'
+                                img_bytes = png_bytes
+                            else:
+                                img_mime, img_ext = 'image/webp', 'webp'
+                                img_bytes = dl_resp.content
+                        if img_bytes is None:
+                            img_bytes = dl_resp.content
                 except Exception:
                     pass
 
