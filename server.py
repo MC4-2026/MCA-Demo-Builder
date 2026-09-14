@@ -5,7 +5,7 @@ Fetches websites server-side, extracts brand assets (colors, fonts, tone, images
 """
 
 _ENGINE_REV = 'mc4-lr-bbr-2026'  # build revision tag
-_APP_VERSION = '2.9.6'  # 2.9.6 = Fix result scoping bug, defensive guards, no-cache HTML, console.error dump
+_APP_VERSION = '2.9.7'  # 2.9.7 = Truncate brand description to 255 chars (CMS limit)
 
 import os
 import re
@@ -1362,7 +1362,7 @@ def build_brand_content_body(config):
 
     return {
         "sfdc_cms:title": config.get('brandName', 'Brand'),
-        "sfdc_cms:description": config.get('description', ''),
+        "sfdc_cms:description": config.get('description', '')[:255],
         "sfdc_cms:einsteinBrandProperties": {
             "identity": identity,
             "personality": {
