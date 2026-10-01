@@ -2033,6 +2033,16 @@ EMAIL_SERIES = {
             {'key': 'welcome_2', 'name': 'Welcome Email 2 — Get Started', 'order': 2},
             {'key': 'welcome_3', 'name': 'Welcome Email 3 — Go Deeper', 'order': 3},
         ]
+    },
+    'custom': {
+        'name': 'Custom Series',
+        'description': 'A fully customisable 3-email series with your own copy and timing.',
+        'wait_days': 3,          # default; overridden at runtime by client-supplied value
+        'emails': [
+            {'key': 'custom_1', 'name': 'Custom Email 1', 'order': 1},
+            {'key': 'custom_2', 'name': 'Custom Email 2', 'order': 2},
+            {'key': 'custom_3', 'name': 'Custom Email 3', 'order': 3},
+        ]
     }
 }
 
@@ -2421,6 +2431,33 @@ SUBINDUSTRY_COPY_MAP = {
 }
 
 
+def _custom_copy_defaults(bn, ct):
+    """Pre-filled placeholder copy for the custom series."""
+    return [
+        {
+            'subject': f'Discover what {bn} can do for you',
+            'preheader': f'See how {bn} helps {ct} succeed',
+            'heading': f'Welcome to {bn}',
+            'body': f"We're excited to introduce you to {bn}. Our platform is designed to help {ct} like you achieve more, faster. Take a moment to explore what we have to offer.",
+            'cta_text': 'Get Started',
+        },
+        {
+            'subject': f'How {ct} are succeeding with {bn}',
+            'preheader': f'Real results from real {ct}',
+            'heading': 'See the Results',
+            'body': f"{bn} is trusted by {ct} around the world. From streamlining operations to driving growth, our customers consistently see meaningful improvements. Here's what makes the difference.",
+            'cta_text': 'Learn More',
+        },
+        {
+            'subject': f'Your next step with {bn}',
+            'preheader': "Don't miss out \u2014 take action today",
+            'heading': 'Ready to Take the Next Step?',
+            'body': f"You've seen what {bn} can do. Now it's time to put it into action. Whether you want a demo, a free trial, or just a conversation \u2014 we're here to help {ct} like you get started.",
+            'cta_text': 'Schedule a Demo',
+        },
+    ]
+
+
 def generate_series_copy(series_key, config):
     """Generate all email copy for a series, based on industry tone."""
     brand_name = config.get('brandName', 'Brand')
@@ -2429,16 +2466,20 @@ def generate_series_copy(series_key, config):
     customer_term = tone['customer_term']
     industry_group = tone['industry']
 
-    # Check sub-industry override first, then fall back to industry group
-    nurture_fn, welcome_fn = SUBINDUSTRY_COPY_MAP.get(
-        tone_key,
-        INDUSTRY_COPY_MAP.get(industry_group, (_nurture_copy_general, _welcome_copy_general))
-    )
-
-    if series_key == 'nurture':
-        copies = nurture_fn(brand_name, customer_term)
+    # Custom series uses its own pre-filled defaults (industry-agnostic)
+    if series_key == 'custom':
+        copies = _custom_copy_defaults(brand_name, customer_term)
     else:
-        copies = welcome_fn(brand_name, customer_term)
+        # Check sub-industry override first, then fall back to industry group
+        nurture_fn, welcome_fn = SUBINDUSTRY_COPY_MAP.get(
+            tone_key,
+            INDUSTRY_COPY_MAP.get(industry_group, (_nurture_copy_general, _welcome_copy_general))
+        )
+
+        if series_key == 'nurture':
+            copies = nurture_fn(brand_name, customer_term)
+        else:
+            copies = welcome_fn(brand_name, customer_term)
 
     series = EMAIL_SERIES[series_key]
     results = []
@@ -2617,7 +2658,8 @@ def get_email_preview():
 
 def generate_flow_xml(series_key, email_content_keys, config, workspace_name='Default_Content_Workspace',
                       segment_id='', sender_id='', subscription_id='', channel_type_id='',
-                      data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm'):
+                      data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm',
+                      wait_days_override=None):
     """Generate a segment-triggered Journey flow XML with sendEmailMessage actions and WaitDuration pauses."""
     series = EMAIL_SERIES.get(series_key)
     if not series:
@@ -2625,7 +2667,7 @@ def generate_flow_xml(series_key, email_content_keys, config, workspace_name='De
 
     brand_name = config.get('brandName', 'Brand')
     series_name = series['name']
-    wait_days = series['wait_days']
+    wait_days = wait_days_override if wait_days_override is not None else series['wait_days']
     flow_label = f"{brand_name} {series_name}"
     flow_label_xml = flow_label.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     flow_api_name = re.sub(r'[^A-Za-z0-9_]', '_', flow_label).replace('__', '_')
@@ -3115,6 +3157,13 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
     brand_content_key = data.get('brandContentKey', '')
     # imageMap from brand deploy: {original_url: {contentKey, managedContentId, cmsUrl, type, wasSvg}}
     image_map = data.get('imageMap', {})
+    # Custom wait_days override (used by custom series)
+    wait_days_override = data.get('waitDays', None)
+    if wait_days_override is not None:
+        try:
+            wait_days_override = int(wait_days_override)
+        except (TypeError, ValueError):
+            wait_days_override = None
 
     if series_key not in EMAIL_SERIES:
         return {'success': False, 'errors': [f'Invalid series: {series_key}'], 'emails': [], 'flow': None, 'campaign': None, 'totalCreated': 0}
@@ -3268,13 +3317,14 @@ def _deploy_email_series_internal(token, instance, data, proxy_base_url=''):
         flow_data = generate_flow_xml(
             series_key, email_content_keys, config,
             workspace_name, segment_id, sender_id, subscription_id, channel_type_id,
-            data_graph=discovered_data_graph, dmo_object=discovered_dmo
+            data_graph=discovered_data_graph, dmo_object=discovered_dmo,
+            wait_days_override=wait_days_override
         )
 
         if flow_data:
             flow_xml = flow_data['xml']
             flow_api_name = flow_data['flowApiName']
-            wait_days = EMAIL_SERIES[series_key]['wait_days']
+            wait_days = wait_days_override if wait_days_override is not None else EMAIL_SERIES[series_key]['wait_days']
             _debug.append(f"Flow: deploying via SOAP, apiName={flow_api_name}")
 
             deploy_result = _soap_deploy_flow(flow_xml, flow_api_name, token, instance, poll_timeout=45)
@@ -3684,10 +3734,18 @@ def deploy_flow():
     if not email_content_keys:
         return jsonify({'error': 'No email content keys provided'}), 400
 
+    custom_wait = data.get('waitDays', None)
+    if custom_wait is not None:
+        try:
+            custom_wait = int(custom_wait)
+        except (TypeError, ValueError):
+            custom_wait = None
+
     flow_data = generate_flow_xml(
         series_key, email_content_keys, config,
         workspace_name, segment_id, sender_id, subscription_id, channel_type_id,
-        data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm'
+        data_graph='Marketing_Data_Graph', dmo_object='UnifiedssotIndividualInd1__dlm',
+        wait_days_override=custom_wait
     )
 
     if not flow_data:
@@ -3695,7 +3753,7 @@ def deploy_flow():
 
     flow_xml = flow_data['xml']
     flow_api_name = flow_data['flowApiName']
-    wait_days = EMAIL_SERIES[series_key]['wait_days']
+    wait_days = custom_wait if custom_wait is not None else EMAIL_SERIES[series_key]['wait_days']
 
     # Deploy via shared helper (submits + polls checkDeployStatus)
     deploy_result = _soap_deploy_flow(flow_data['xml'], flow_api_name, token, instance, poll_timeout=45)

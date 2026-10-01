@@ -586,6 +586,52 @@
         </div>
       </div>
 
+      <!-- Phase 4: Custom Series (shown only if custom enabled) -->
+      <div id="phase4Card" class="hidden border border-gray-200 rounded-lg p-4 mb-3 opacity-50 pointer-events-none">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <div id="phase4Icon" class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">4</div>
+            <h4 class="font-semibold text-secondary text-sm">Custom Series</h4>
+          </div>
+          <div id="phase4Badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-muted">Waiting</div>
+        </div>
+        <div id="phase4Summary" class="flex gap-3 mb-3">
+          <div class="bg-surface rounded px-3 py-1 text-center">
+            <span id="phase4EmailCount" class="text-sm font-bold text-secondary">0</span>
+            <span class="text-xs text-muted ml-1">Emails</span>
+          </div>
+          <div id="phase4FlowBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Flow</span>
+          </div>
+          <div id="phase4CampaignBadge" class="bg-surface rounded px-3 py-1 text-center">
+            <span class="text-sm font-bold text-secondary">1</span>
+            <span class="text-xs text-muted ml-1">Campaign</span>
+          </div>
+        </div>
+        <button id="btnPhase4" onclick="deployPhase4()"
+          class="px-5 py-2 bg-success text-white font-semibold rounded-lg hover:bg-success/90 transition shadow-sm cursor-pointer text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          Deploy Custom
+        </button>
+        <div id="phase4Progress" class="hidden mt-3">
+          <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="phase4Status" class="text-xs text-secondary">Creating emails...</span>
+          </div>
+          <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div id="phase4Bar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+        <div id="phase4Error" class="hidden mt-3 p-2 bg-error/5 border border-error/20 rounded text-error text-xs"></div>
+        <div id="phase4Done" class="hidden mt-3 text-sm">
+          <div id="phase4Results" class="space-y-1"></div>
+        </div>
+      </div>
+
       <!-- Post-Brand: Next Steps (appears after brand deploy, if no email phases were pre-configured) -->
       <div id="postBrandOptions" class="hidden mt-4 pt-4 border-t border-gray-200">
         <div class="mb-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-xs">
@@ -760,6 +806,20 @@
               <span class="block font-semibold text-secondary">Welcome Series</span>
               <span class="text-xs text-muted">3 emails · 1-day gap between sends</span>
               <span class="block text-xs text-accent mt-1">Onboard new customers with a warm introduction</span>
+            </div>
+          </label>
+          <label id="seriesToggleCustom" class="flex items-start gap-3 p-4 bg-surface rounded-lg border-2 border-transparent hover:border-gray-300 transition cursor-pointer md:col-span-2">
+            <input type="checkbox" id="seriesCustomCheck" onchange="onSeriesToggle()" class="mt-1 accent-primary">
+            <div class="flex-1">
+              <span class="block font-semibold text-secondary">Custom Series</span>
+              <span class="text-xs text-muted">3 emails · fully customisable copy &amp; timing</span>
+              <span class="block text-xs text-accent mt-1">Write your own emails with pre-filled defaults you can edit</span>
+              <div id="customWaitConfig" class="hidden mt-3 flex items-center gap-2">
+                <label class="text-xs font-medium text-muted">Days between sends:</label>
+                <input type="number" id="customWaitDays" value="3" min="1" max="30"
+                  onchange="emailSeriesState.customWaitDays=parseInt(this.value)||3"
+                  class="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center">
+              </div>
             </div>
           </label>
         </div>
@@ -1273,9 +1333,11 @@ function exportJSON() {
     _emailSeries: {
       selectedLogo: emailSeriesState.selectedLogo,
       headerColor: emailSeriesState.headerColor,
+      customWaitDays: emailSeriesState.customWaitDays,
       series: {
         nurture: { enabled: emailSeriesState.series.nurture.enabled, emails: emailSeriesState.series.nurture.emails },
-        welcome: { enabled: emailSeriesState.series.welcome.enabled, emails: emailSeriesState.series.welcome.emails }
+        welcome: { enabled: emailSeriesState.series.welcome.enabled, emails: emailSeriesState.series.welcome.emails },
+        custom:  { enabled: emailSeriesState.series.custom.enabled,  emails: emailSeriesState.series.custom.emails }
       }
     },
     _deployResults: {
@@ -1339,14 +1401,18 @@ function importJSON() {
       if (data._emailSeries) {
         emailSeriesState.selectedLogo = data._emailSeries.selectedLogo || null;
         emailSeriesState.headerColor = data._emailSeries.headerColor || null;
+        emailSeriesState.customWaitDays = data._emailSeries.customWaitDays || 3;
         emailSeriesState.series.nurture = data._emailSeries.series?.nurture || { enabled: true, emails: [] };
         emailSeriesState.series.welcome = data._emailSeries.series?.welcome || { enabled: true, emails: [] };
+        emailSeriesState.series.custom  = data._emailSeries.series?.custom  || { enabled: false, emails: [] };
       } else {
         // Reset email state for legacy imports
         emailSeriesState.selectedLogo = null;
         emailSeriesState.headerColor = null;
+        emailSeriesState.customWaitDays = 3;
         emailSeriesState.series.nurture = { enabled: true, emails: [] };
         emailSeriesState.series.welcome = { enabled: true, emails: [] };
+        emailSeriesState.series.custom  = { enabled: false, emails: [] };
       }
 
       // Restore deploy results (brand SF IDs) if available
@@ -1408,7 +1474,8 @@ function startUnifiedDeploy() {
   // Determine which email series have generated copy
   const hasNurtureCopy = emailSeriesState.series.nurture.enabled && emailSeriesState.series.nurture.emails.length > 0;
   const hasWelcomeCopy = emailSeriesState.series.welcome.enabled && emailSeriesState.series.welcome.emails.length > 0;
-  const hasAnyEmails = hasNurtureCopy || hasWelcomeCopy;
+  const hasCustomCopy  = emailSeriesState.series.custom.enabled  && emailSeriesState.series.custom.emails.length > 0;
+  const hasAnyEmails = hasNurtureCopy || hasWelcomeCopy || hasCustomCopy;
 
   // Update Phase 1 summary counts
   document.getElementById('phase1ImageCount').textContent = config.images.length;
@@ -1420,6 +1487,7 @@ function startUnifiedDeploy() {
   }
   resetPhaseCard(2);
   resetPhaseCard(3);
+  resetPhaseCard(4);
   document.getElementById('allPhasesComplete').classList.add('hidden');
   document.getElementById('postBrandOptions').classList.add('hidden');
 
@@ -1451,22 +1519,27 @@ function startUnifiedDeploy() {
     document.getElementById('phase3Card').classList.add('hidden');
   }
 
+  // Phase 4: Custom
+  if (hasCustomCopy) {
+    document.getElementById('phase4Card').classList.remove('hidden');
+    document.getElementById('phase4EmailCount').textContent = emailSeriesState.series.custom.emails.length;
+  } else {
+    document.getElementById('phase4Card').classList.add('hidden');
+  }
+
   // Renumber visible phase cards
   let phaseNum = 2;
   if (hasNurtureCopy) { document.getElementById('phase2Icon').textContent = phaseNum++; }
-  if (hasWelcomeCopy) { document.getElementById('phase3Icon').textContent = phaseNum; }
+  if (hasWelcomeCopy) { document.getElementById('phase3Icon').textContent = phaseNum++; }
+  if (hasCustomCopy)  { document.getElementById('phase4Icon').textContent = phaseNum; }
 
-  // If brand already deployed and we now have email phases, unlock them
+  // If brand already deployed and we now have email phases, unlock first available
   if (brandAlreadyDeployed && hasAnyEmails) {
-    // Unlock first available email phase
-    if (hasNurtureCopy) {
-      document.getElementById('phase2Card').classList.remove('opacity-50', 'pointer-events-none');
-      document.getElementById('phase2Badge').textContent = 'Ready';
-      document.getElementById('phase2Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
-    } else if (hasWelcomeCopy) {
-      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
-      document.getElementById('phase3Badge').textContent = 'Ready';
-      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+    const firstPhase = hasNurtureCopy ? 2 : hasWelcomeCopy ? 3 : hasCustomCopy ? 4 : null;
+    if (firstPhase) {
+      document.getElementById(`phase${firstPhase}Card`).classList.remove('opacity-50', 'pointer-events-none');
+      document.getElementById(`phase${firstPhase}Badge`).textContent = 'Ready';
+      document.getElementById(`phase${firstPhase}Badge`).className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
     }
   }
 
@@ -1744,33 +1817,39 @@ function getEmailConfig() {
 }
 
 function unlockNextPhase(completedPhase) {
-  // After phase 1, unlock phase 2 (nurture) or phase 3 (welcome) whichever is visible
-  // After phase 2, unlock phase 3 if visible
   const phase2Visible = !document.getElementById('phase2Card').classList.contains('hidden');
   const phase3Visible = !document.getElementById('phase3Card').classList.contains('hidden');
+  const phase4Visible = !document.getElementById('phase4Card').classList.contains('hidden');
 
-  if (completedPhase === 1) {
-    if (phase2Visible) {
-      document.getElementById('phase2Card').classList.remove('opacity-50', 'pointer-events-none');
-      document.getElementById('phase2Badge').textContent = 'Ready';
-      document.getElementById('phase2Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
-    } else if (phase3Visible) {
-      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
-      document.getElementById('phase3Badge').textContent = 'Ready';
-      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
-    } else {
-      // No email series configured yet — offer to build them or finish
-      document.getElementById('postBrandOptions').classList.remove('hidden');
+  // Helper to unlock a phase card
+  function unlock(n) {
+    document.getElementById(`phase${n}Card`).classList.remove('opacity-50', 'pointer-events-none');
+    document.getElementById(`phase${n}Badge`).textContent = 'Ready';
+    document.getElementById(`phase${n}Badge`).className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
+  }
+
+  // Find the next visible phase to unlock
+  const phases = [
+    { num: 2, visible: phase2Visible },
+    { num: 3, visible: phase3Visible },
+    { num: 4, visible: phase4Visible },
+  ];
+
+  // Find the first visible phase AFTER the completed one
+  let unlocked = false;
+  for (const p of phases) {
+    if (p.num > completedPhase && p.visible) {
+      unlock(p.num);
+      unlocked = true;
+      break;
     }
-  } else if (completedPhase === 2) {
-    if (phase3Visible) {
-      document.getElementById('phase3Card').classList.remove('opacity-50', 'pointer-events-none');
-      document.getElementById('phase3Badge').textContent = 'Ready';
-      document.getElementById('phase3Badge').className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700';
-    } else {
-      document.getElementById('allPhasesComplete').classList.remove('hidden');
-    }
-  } else if (completedPhase === 3) {
+  }
+
+  if (completedPhase === 1 && !unlocked) {
+    // No email series configured yet — offer to build them or finish
+    document.getElementById('postBrandOptions').classList.remove('hidden');
+  } else if (completedPhase >= 2 && !unlocked) {
+    // All email phases done
     document.getElementById('allPhasesComplete').classList.remove('hidden');
   }
 }
@@ -1868,6 +1947,11 @@ async function deployPhase3() {
   await deployEmailSeries('welcome', 3);
 }
 
+// Phase 4: Deploy Custom Series (emails + flow + campaign)
+async function deployPhase4() {
+  await deployEmailSeries('custom', 4);
+}
+
 async function deployEmailSeries(seriesKey, phaseNum) {
   const { config, workspaceId, wsName } = getDeployCommon();
   if (!workspaceId) return;
@@ -1923,7 +2007,8 @@ async function deployEmailSeries(seriesKey, phaseNum) {
         headerColor: emailConfig.headerColor,
         brandContentId: deployResults?.brand?.brandId || '',
         brandContentKey: deployResults?.brand?.brandContentKey || '',
-        imageMap: deployResults?.brand?.imageMap || {}
+        imageMap: deployResults?.brand?.imageMap || {},
+        ...(seriesKey === 'custom' ? { waitDays: emailSeriesState.customWaitDays } : {})
       })
     });
 
@@ -2257,9 +2342,11 @@ async function scanSpecificPage() {
 let emailSeriesState = {
   selectedLogo: null,
   headerColor: null,
+  customWaitDays: 3,
   series: {
     nurture: { enabled: true, emails: [] },
-    welcome: { enabled: true, emails: [] }
+    welcome: { enabled: true, emails: [] },
+    custom:  { enabled: false, emails: [] }
   }
 };
 
@@ -2329,6 +2416,14 @@ function initEmailSeriesUI() {
   emailSeriesState.headerColor = hcSel.value;
   document.getElementById('headerColorPreview').style.backgroundColor = hcSel.value;
   document.getElementById('customColorRow').classList.add('hidden');
+
+  // Sync custom series UI from state (e.g. after JSON import)
+  document.getElementById('seriesNurtureCheck').checked = emailSeriesState.series.nurture.enabled;
+  document.getElementById('seriesWelcomeCheck').checked = emailSeriesState.series.welcome.enabled;
+  document.getElementById('seriesCustomCheck').checked = emailSeriesState.series.custom.enabled;
+  document.getElementById('customWaitDays').value = emailSeriesState.customWaitDays || 3;
+  document.getElementById('customWaitConfig').classList.toggle('hidden', !emailSeriesState.series.custom.enabled);
+  onSeriesToggle();   // refresh border styles
 }
 
 function onHeaderColorChange() {
@@ -2380,6 +2475,7 @@ function onEmailLogoChange() {
 function onSeriesToggle() {
   emailSeriesState.series.nurture.enabled = document.getElementById('seriesNurtureCheck').checked;
   emailSeriesState.series.welcome.enabled = document.getElementById('seriesWelcomeCheck').checked;
+  emailSeriesState.series.custom.enabled  = document.getElementById('seriesCustomCheck').checked;
 
   // Update border styling
   document.getElementById('seriesToggleNurture').className =
@@ -2388,12 +2484,19 @@ function onSeriesToggle() {
   document.getElementById('seriesToggleWelcome').className =
     'flex items-start gap-3 p-4 bg-surface rounded-lg border-2 transition cursor-pointer ' +
     (emailSeriesState.series.welcome.enabled ? 'border-primary/30 hover:border-primary/50' : 'border-transparent hover:border-gray-300');
+  document.getElementById('seriesToggleCustom').className =
+    'flex items-start gap-3 p-4 bg-surface rounded-lg border-2 transition cursor-pointer md:col-span-2 ' +
+    (emailSeriesState.series.custom.enabled ? 'border-primary/30 hover:border-primary/50' : 'border-transparent hover:border-gray-300');
+
+  // Show/hide custom wait config
+  document.getElementById('customWaitConfig').classList.toggle('hidden', !emailSeriesState.series.custom.enabled);
 }
 
 async function generateSeriesCopy() {
   const enabled = [];
   if (emailSeriesState.series.nurture.enabled) enabled.push('nurture');
   if (emailSeriesState.series.welcome.enabled) enabled.push('welcome');
+  if (emailSeriesState.series.custom.enabled)  enabled.push('custom');
 
   if (enabled.length === 0) {
     const errEl = document.getElementById('emailError');
@@ -2443,11 +2546,12 @@ function renderSeriesCards() {
   container.classList.remove('hidden');
 
   const allImages = (analysisResult.images || []).filter(i => i.selected !== false);
-  const waitLabels = { nurture: '5-day wait', welcome: '1-day wait' };
-  const seriesLabels = { nurture: 'Nurture Series', welcome: 'Welcome Series' };
-  const seriesColors = { nurture: '#0176d3', welcome: '#16a34a' };
+  const customDays = emailSeriesState.customWaitDays || 3;
+  const waitLabels = { nurture: '5-day wait', welcome: '1-day wait', custom: `${customDays}-day wait` };
+  const seriesLabels = { nurture: 'Nurture Series', welcome: 'Welcome Series', custom: 'Custom Series' };
+  const seriesColors = { nurture: '#0176d3', welcome: '#16a34a', custom: '#9333ea' };
 
-  for (const sk of ['nurture', 'welcome']) {
+  for (const sk of ['nurture', 'welcome', 'custom']) {
     const s = emailSeriesState.series[sk];
     if (!s.enabled || s.emails.length === 0) continue;
 
