@@ -1307,6 +1307,11 @@ def download_page():
     return send_from_directory('.', 'download-email-series.html')
 
 
+@app.route('/claude-email-builder')
+def claude_email_builder():
+    return send_from_directory('.', 'claude-email-builder.html')
+
+
 # ─── OAuth & Salesforce Deploy ───
 
 FONT_MAP = {

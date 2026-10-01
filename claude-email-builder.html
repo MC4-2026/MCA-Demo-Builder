@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create Emails with Claude — MCA Demo Brand Builder</title>
+<link rel="icon" type="image/png" href="https://image.s4.sfmc-content.com/lib/fe8e1574756d0d7b71/m/1/f250875f-3df4-4550-8712-3c65ccce6d47.png">
+<script src="https://assets.meshmesh.io/system/tailwindcss-browser-4.js"></script>
+<style type="text/tailwindcss">
+@theme {
+  --color-primary: #0176d3;
+  --color-secondary: #032d60;
+  --color-accent: #ff6b2b;
+  --color-surface: #f4f6f9;
+  --color-muted: #706e6b;
+  --color-success: #2e844a;
+}
+</style>
+</head>
+<body class="bg-surface min-h-screen font-sans text-secondary">
+
+<!-- Header -->
+<header class="bg-secondary text-white px-6 py-4 flex items-center gap-3 shadow-md">
+  <a href="/" class="flex items-center gap-3 hover:opacity-90 transition">
+    <img src="https://image.s4.sfmc-content.com/lib/fe8e1574756d0d7b71/m/1/f250875f-3df4-4550-8712-3c65ccce6d47.png" alt="Larry" class="w-8 h-8 rounded-lg object-cover bg-white/10">
+    <h1 class="text-lg font-semibold tracking-tight">MCA Demo Brand Builder</h1>
+  </a>
+  <span class="ml-auto text-xs text-white/60">Claude Email Builder</span>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-8">
+
+  <!-- Intro -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-6">
+    <div class="flex items-start gap-4 mb-6">
+      <div class="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+        <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+      <div>
+        <h2 class="text-2xl font-bold text-secondary">Create Your Own Email Series with Claude</h2>
+        <p class="text-muted mt-1">Use Claude to generate a brand configuration JSON with custom email copy, then load it directly into the MCA Brand Builder to deploy to Salesforce Marketing Cloud.</p>
+      </div>
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+      <h3 class="font-semibold text-blue-800 text-sm mb-2">How It Works</h3>
+      <ol class="text-sm text-blue-700 space-y-1.5">
+        <li><strong>1.</strong> Copy the prompt below and paste it into Claude</li>
+        <li><strong>2.</strong> Tell Claude your brand name and website URL</li>
+        <li><strong>3.</strong> Claude will analyze the site and generate a complete brand config JSON with 3 custom emails</li>
+        <li><strong>4.</strong> Save the JSON that Claude produces as a <code class="bg-blue-100 px-1 rounded">.json</code> file</li>
+        <li><strong>5.</strong> Come back here, click <strong>"Load Saved Brand"</strong> on the <a href="/" class="underline font-medium">main page</a>, and import the JSON</li>
+        <li><strong>6.</strong> Review, tweak if needed, then deploy to your Salesforce org</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- The Prompt -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-bold text-secondary">The Prompt</h3>
+      <button onclick="copyPrompt()" id="copyBtn"
+        class="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+        Copy Prompt
+      </button>
+    </div>
+    <p class="text-sm text-muted mb-4">Copy this entire prompt and paste it into a new Claude conversation. Then tell Claude the brand name and URL you want to use.</p>
+
+    <div class="relative">
+      <pre id="promptText" class="bg-gray-900 text-gray-100 rounded-lg p-6 text-sm leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono max-h-[600px] overflow-y-auto">You are a brand analyst and email copywriter. Your job is to analyze a website and produce a complete brand configuration JSON file that can be loaded into the MCA Demo Brand Builder app.
+
+The user will give you a **brand name** and a **website URL**. You should:
+
+1. Visit/analyze the website to extract brand colors (hex values), fonts, tone of voice, and images
+2. Write 3 custom marketing emails for a "Custom Series" email flow
+3. Output a single valid JSON file the user can save and import
+
+---
+
+## JSON STRUCTURE
+
+The output must be a single JSON object with these top-level fields:
+
+```json
+{
+  "brandName": "Acme Corp",
+  "description": "A short brand description (1-2 sentences about what the company does)",
+  "identity": "A longer brand identity statement describing the brand personality and values",
+  "tone": {
+    "key": "general",
+    "label": "General Business",
+    "description": "A description of the brand's communication tone",
+    "customerTerm": "customers"
+  },
+  "colors": [
+    { "label": "Primary", "hex": "#0066CC" },
+    { "label": "Secondary", "hex": "#003366" },
+    { "label": "Accent", "hex": "#FF6600" }
+  ],
+  "typography": {
+    "headingFont": "Arial",
+    "bodyFont": "Helvetica"
+  },
+  "buttonStyle": {
+    "color": "#0066CC",
+    "borderRadius": 4
+  },
+  "images": [],
+  "sourceUrl": "https://www.example.com",
+  "_version": 3,
+  "_exportedAt": "",
+  "_analysisResult": {
+    "brandName": "Acme Corp",
+    "description": "same as above",
+    "identity": "same as above",
+    "toneKey": "general",
+    "toneLabel": "General Business",
+    "toneIndustry": "",
+    "toneDescription": "same tone description",
+    "customerTerm": "customers",
+    "colors": [
+      { "label": "Primary", "hex": "#0066CC" },
+      { "label": "Secondary", "hex": "#003366" },
+      { "label": "Accent", "hex": "#FF6600" }
+    ],
+    "headingFont": "Arial",
+    "bodyFont": "Helvetica",
+    "buttonColor": "#0066CC",
+    "buttonRadius": 4,
+    "images": [],
+    "sourceUrl": "https://www.example.com"
+  },
+  "_emailSeries": {
+    "selectedLogo": null,
+    "headerColor": null,
+    "customWaitDays": 3,
+    "series": {
+      "nurture": { "enabled": false, "emails": [] },
+      "welcome": { "enabled": false, "emails": [] },
+      "custom": {
+        "enabled": true,
+        "emails": [
+          {
+            "key": "custom_1",
+            "name": "Custom Email 1",
+            "order": 1,
+            "subject": "Email 1 subject line",
+            "preheader": "Email 1 preheader text",
+            "heading": "Email 1 heading",
+            "body": "Email 1 body copy (2-4 sentences)",
+            "cta_text": "Button Text",
+            "cta_url": "#",
+            "heroUrl": null
+          },
+          {
+            "key": "custom_2",
+            "name": "Custom Email 2",
+            "order": 2,
+            "subject": "Email 2 subject line",
+            "preheader": "Email 2 preheader text",
+            "heading": "Email 2 heading",
+            "body": "Email 2 body copy (2-4 sentences)",
+            "cta_text": "Button Text",
+            "cta_url": "#",
+            "heroUrl": null
+          },
+          {
+            "key": "custom_3",
+            "name": "Custom Email 3",
+            "order": 3,
+            "subject": "Email 3 subject line",
+            "preheader": "Email 3 preheader text",
+            "heading": "Email 3 heading",
+            "body": "Email 3 body copy (2-4 sentences)",
+            "cta_text": "Button Text",
+            "cta_url": "#",
+            "heroUrl": null
+          }
+        ]
+      }
+    }
+  },
+  "_deployResults": {
+    "brandId": "",
+    "contentIds": [],
+    "totalCreated": 0,
+    "success": false
+  }
+}
+```
+
+---
+
+## FIELD GUIDE
+
+### Brand Fields
+- **brandName**: The company/account name
+- **description**: 1-2 sentence summary of the business
+- **identity**: Longer brand personality statement (2-4 sentences)
+- **sourceUrl**: The website URL that was analyzed
+
+### Tone
+The `tone.key` must be one of these valid values:
+- `general` — General Business
+- `banking_retail` — Retail Banking
+- `banking_commercial` — Commercial / B2B Banking
+- `banking_community` — Community Banks
+- `credit_unions` — Credit Unions
+- `wealth_management` — Wealth Management
+- `asset_management` — Asset Management
+- `insurance_pc` — Property &amp; Casualty Insurance
+- `insurance_life` — Life Insurance
+- `insurance_group` — Group Benefits
+- `insurance_brokerage` — Insurance Brokerage
+- `lending_mortgage` — Lending &amp; Mortgage
+- `lending_solar` — Solar Lending
+- `payments` — Payments &amp; Fintech
+
+Pick the closest match. Use `general` if none fit.
+
+The `tone.customerTerm` describes the target audience (e.g. "customers", "members", "clients", "businesses", "homeowners", "policyholders").
+
+### Colors
+Extract 3-6 brand colors from the website. Each needs:
+- `label`: Descriptive name (e.g. "Primary Blue", "Accent Orange")
+- `hex`: Hex color code (e.g. "#0066CC")
+
+### Typography
+- `headingFont`: The heading/display font (e.g. "Poppins", "Inter", "Arial")
+- `bodyFont`: The body/paragraph font
+
+### Button Style
+- `color`: Hex color for CTA buttons (usually the primary brand color)
+- `borderRadius`: Corner radius in pixels (0 = square, 4 = slightly rounded, 20+ = pill)
+
+### Images
+Leave `images` as an empty array `[]`. The user will add images in the Brand Builder UI.
+
+### Email Series
+The `_emailSeries.series.custom.emails` array contains exactly 3 email objects.
+
+Each email needs:
+- `key`: Must be `custom_1`, `custom_2`, or `custom_3`
+- `name`: Display name (e.g. "Welcome Email", "Value Proposition", "Call to Action")
+- `order`: 1, 2, or 3
+- `subject`: The email subject line (keep under 60 characters)
+- `preheader`: Preview text shown in inbox (keep under 100 characters)
+- `heading`: The main heading inside the email
+- `body`: 2-4 sentences of body copy
+- `cta_text`: The call-to-action button text (e.g. "Learn More", "Get Started")
+- `cta_url`: Leave as `"#"` (the user will set the real URL later)
+- `heroUrl`: Leave as `null`
+
+Set `_emailSeries.customWaitDays` to the number of days between email sends (default: 3).
+
+### _analysisResult
+This mirrors the top-level fields. Copy the same values into `_analysisResult` — the app uses this to restore the editor state.
+
+### _deployResults
+Leave all fields empty/false — this gets populated when the user deploys to Salesforce.
+
+---
+
+## WRITING GUIDELINES
+
+**Email Subject Lines:**
+- Keep under 60 characters
+- Use the brand name naturally
+- Create curiosity or urgency without being spammy
+
+**Email Body Copy:**
+- 2-4 sentences per email
+- Match the brand's tone of voice
+- Reference the brand's industry and value proposition
+- Progress through a natural arc: introduce → demonstrate value → call to action
+
+**Email Series Arc (3 emails):**
+- Email 1: Introduction / awareness — introduce the brand and its core value
+- Email 2: Social proof / deeper value — show benefits, results, or credibility
+- Email 3: Call to action / urgency — drive the reader to take a specific next step
+
+---
+
+## OUTPUT
+
+Return ONLY the JSON — no markdown code fences, no explanation before or after. The user will save this directly as a .json file.
+
+Now, please ask the user for their **brand name** and **website URL** to get started.</pre>
+    </div>
+  </div>
+
+  <!-- Tips -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-6">
+    <h3 class="text-lg font-bold text-secondary mb-4">Tips for Best Results</h3>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="flex gap-3">
+        <div class="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0 mt-0.5">
+          <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div>
+          <h4 class="font-semibold text-sm text-secondary">Give Claude context</h4>
+          <p class="text-xs text-muted mt-0.5">After pasting the prompt, tell Claude what type of campaign you want (product launch, seasonal promo, re-engagement, etc.).</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <div class="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0 mt-0.5">
+          <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div>
+          <h4 class="font-semibold text-sm text-secondary">Iterate on the copy</h4>
+          <p class="text-xs text-muted mt-0.5">Ask Claude to revise subject lines, adjust the tone, or rewrite the body copy. Then export the final JSON.</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <div class="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0 mt-0.5">
+          <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div>
+          <h4 class="font-semibold text-sm text-secondary">Add images later</h4>
+          <p class="text-xs text-muted mt-0.5">Images are left blank in the JSON. After loading into the Brand Builder, use the image selector to add logos and hero images.</p>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <div class="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0 mt-0.5">
+          <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div>
+          <h4 class="font-semibold text-sm text-secondary">Custom wait days</h4>
+          <p class="text-xs text-muted mt-0.5">Tell Claude how many days you want between sends. The default is 3, but you can set it to any value from 1 to 30.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Back Link -->
+  <div class="text-center">
+    <a href="/" class="text-primary hover:underline text-sm font-medium">&larr; Back to Brand Builder</a>
+  </div>
+
+</main>
+
+<script>
+function copyPrompt() {
+  const text = document.getElementById('promptText').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Copied!';
+    btn.classList.remove('bg-primary');
+    btn.classList.add('bg-success');
+    setTimeout(() => {
+      btn.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg> Copy Prompt';
+      btn.classList.remove('bg-success');
+      btn.classList.add('bg-primary');
+    }, 2000);
+  });
+}
+</script>
+
+</body>
+</html>
